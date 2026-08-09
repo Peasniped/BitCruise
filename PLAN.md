@@ -1,0 +1,313 @@
+# PLAN.md
+
+Delivery plan for **BitCruise** — what gets built, in what order, and what "finished" means for each phase.
+
+Design detail lives in [DESIGN.md](DESIGN.md). Actionable task state lives in [TODO.md](TODO.md); this file deliberately carries no checkboxes.
+
+The project builds in layers. The first useful release solves charging well before calendar/trip-booking features are added. The architecture stays provider-agnostic: Home Assistant supplies the car, charger, price, notification, and later calendar entities. Vendor-specific adapters are conveniences, not the core domain model.
+
+---
+
+## Phase status
+
+| Phase | Title | Status |
+| --- | --- | --- |
+| 0 | Repository bootstrap | Not started |
+| 1 | Domain model and pure charging planner | Not started |
+| 2 | HA source binding and visible sensors | Not started |
+| 3 | Energi Data Service + Carnot price adapter | Not started |
+| 4 | Proposal/approval state machine | Not started |
+| 5 | Notifications | Not started |
+| 6 | Charger execution | Not started |
+| 7 | Restart recovery and robustness | Not started |
+| 8 | First HACS-quality release | Not started |
+| 9 | Calendar booking input | Future |
+| 10 | Trip energy planning | Future |
+| 11 | Booking conflict decisions | Future |
+| 12 | Fastmail invitation RSVP adapter | Future / optional |
+| 13 | Urgency-aware planning for unplanned trips | Future |
+| 14 | Planned distance calendar | Future |
+| 15 | Multiple vehicles and shared-resource coordination | Future |
+
+Phases 0–8 are ordered and build on each other. Phases 9–15 are future work and are
+not strictly ordered among themselves; each states its own dependencies.
+
+Decided already: repository `BitPusher/BitCruise`, integration domain `bitcruise`,
+one vehicle per installation for V1 (`DESIGN.md` ADR-008).
+
+---
+
+## Phase 0 — Repository bootstrap
+
+**Goal.** A clean custom-integration repository that can be developed locally, checked in CI, and installed through HACS as a custom repository.
+
+**Scope.** Licence, `.gitignore`, README with early-development warning, `hacs.json`, `custom_components/bitcruise/` skeleton with a valid `manifest.json`, minimal `__init__.py` and `config_flow.py`, translations and tests structure, and CI for tests + HACS + Hassfest validation. Decide and document the minimum supported Home Assistant version and local VS Code development steps.
+
+**Acceptance criteria.**
+
+- Repository validates as a HACS custom integration.
+- The integration copies into `custom_components` without structural errors.
+- Home Assistant recognizes the config flow.
+- A minimal config entry loads and unloads successfully.
+- CI runs automatically on push and PR.
+
+---
+
+## Phase 1 — Domain model and pure charging planner
+
+**Goal.** Charging math and cheapest-window selection with no Home Assistant side effects.
+
+This is the most important layer. Charger control is not started before it is heavily tested.
+
+**Scope.** The domain models and `ChargePlan` shape in `DESIGN.md` §4, the calculations in §5, and the contiguous-window optimizer in §6.
+
+Includes `reserve_floor_pct` and `ChargeUrgency` in the domain model and the floor
+deficit calculation (§5, ADR-007). The floor defaults to `0`, which reproduces pure
+deadline-driven behavior; urgency-aware *planning* is Phase 13. Carrying the field
+now avoids reopening `PlanningInput`, `ChargePlan`, persistence, and the approval
+state machine at once later.
+
+**Acceptance criteria.**
+
+Given fixture prices and battery state, `planner.py` returns exactly the expected plan without importing Home Assistant, and the planner test matrix in `DESIGN.md` §14 passes.
+
+---
+
+## Phase 2 — Home Assistant source binding and visible sensors
+
+**Goal.** The user configures vehicle and price inputs entirely through the HA UI and sees the requested deficit values.
+
+**Scope.** The V1 config flow surface in `DESIGN.md` §10 (vehicle, charging, prices — charger execution is deferred to Phase 6 unless it falls out naturally from the flow design), the runtime normalization rules in §13, and the first exposed entities: charging deficit %, battery energy deficit kWh, grid energy required kWh, required charge duration, charge-needed binary sensor, and plan status.
+
+Also adds the reserve floor as a configurable percentage, validated against the target
+(`DESIGN.md` §5). It is exposed and honoured in the deficit figures; acting on it
+urgently is Phase 13.
+
+**Acceptance criteria.**
+
+On the real XC40 installation, changing vehicle SoC or charge target updates deficit % and kWh correctly, with no YAML templates.
+
+---
+
+## Phase 3 — Energi Data Service + Carnot price adapter
+
+**Goal.** Turn the selected EDS entity into normalized price intervals, with forecast data usable before official next-day prices arrive.
+
+**Scope.** The price-source abstraction and EDS/Carnot adapter behavior in `DESIGN.md` §12, plus the replanning triggers and debounce in §6.
+
+Attribute names must be captured from the user's real Energi Data Service sensor and frozen as sanitized fixtures. Do not code from assumptions.
+
+**Acceptance criteria.**
+
+Before official tomorrow prices exist, the planner builds a forecast-based plan. Once actual prices replace the forecast, it produces the actual-price optimum and can explain whether the plan changed.
+
+---
+
+## Phase 4 — Proposal/approval state machine
+
+**Goal.** Make plan approval a first-class feature.
+
+**Scope.** The persisted proposal/approval record in `DESIGN.md` §11, the control entities and core approval rules in §7, and the proposed/approved start-end, estimated cost, plan status, and approval-required sensors.
+
+**Acceptance criteria.**
+
+An already approved schedule can never be silently changed by a background replan.
+
+---
+
+## Phase 5 — Notifications
+
+**Goal.** Provide the desired household interaction without making notifications mandatory.
+
+**Scope.** The optional notification target, warning offset (default 15 minutes), and the notification cases and message shapes in `DESIGN.md` §8.
+
+Buttons in notifications invoke the same integration actions as dashboard buttons. Approval logic is never duplicated inside notification handling.
+
+**Acceptance criteria.**
+
+The system remains fully operable from HA entities when no notification target is configured.
+
+---
+
+## Phase 6 — Charger execution
+
+**Goal.** Execute an approved plan through user-selected Home Assistant controls. The initial real target is a Zaptec Go 2, via generic entity/action selection rather than Zaptec-specific code.
+
+**Scope.** The optional charger capability selections added to the config flow, the start/end execution flows, late-connection behavior, and failure handling — all in `DESIGN.md` §9 and §10.
+
+**Acceptance criteria.**
+
+On the real Zaptec Go 2, an approved plan authorizes/starts at the planned time and stops at the planned end, with no YAML automation glue.
+
+---
+
+## Phase 7 — Restart recovery and robustness
+
+**Goal.** Make the integration boringly reliable across restarts and transient unavailable entities.
+
+**Scope.** Persistence, callback re-registration, reconciliation, and idempotency as specified in `DESIGN.md` §11, plus diagnostics with private data redacted and Repairs issues for broken entity selections.
+
+**Acceptance criteria.**
+
+Restarting Home Assistant at each of these points produces sensible behavior: before scheduled start; one minute before start; during charging; one minute before end; after end; while price or car entities are unavailable.
+
+---
+
+## Phase 8 — First HACS-quality release
+
+**Goal.** Publish a version another Home Assistant user can install and understand without reading the source.
+
+**Scope.** README installation instructions, documented entity requirements, troubleshooting and diagnostics sections, changelog, version alignment in `manifest.json`, and verified clean install plus upgrade through a HACS custom repository.
+
+Call this `0.3.x` or `0.5.x`, not `1.0`, until the config schema and behavior have seen real household use.
+
+**Acceptance criteria.**
+
+HACS validation, Hassfest, and the test suite all pass, and a clean install and an upgrade have both been tested.
+
+---
+
+## Phase 9 — Calendar booking input (future)
+
+**Goal.** Let a shared household calendar define when the car is needed, via `Fastmail -> CalDAV -> HA calendar entity -> BitCruise`.
+
+**Scope.** The calendar abstraction, booking schema convention, `CarBooking` model, and booking logic in `DESIGN.md` §17. No Fastmail credentials in BitCruise for this phase.
+
+**Acceptance criteria.**
+
+Adding a valid car-booking event changes the next ready-by deadline and required departure SoC without changing the core charging optimizer.
+
+---
+
+## Phase 10 — Trip energy planning (future)
+
+**Goal.** Estimate the energy a booking requires, including the return journey, and derive a required departure SoC.
+
+**Scope.** The trip energy model and long-trip target policy in `DESIGN.md` §17, kept in a separate `trip_energy.py`.
+
+**Acceptance criteria.**
+
+A booking with an explicit distance produces a defensible required departure SoC and feeds it into the same planner used by ordinary charging, with `intermediate_charge_required` set honestly.
+
+---
+
+## Phase 11 — Booking conflict decisions (future)
+
+**Goal.** Determine whether a requested car booking conflicts with existing bookings.
+
+This logic belongs in this project if BitCruise evolves into a household "car resource manager", because it directly determines vehicle availability and charging deadlines. Invitation transport stays adapter-based.
+
+**Scope.** The pure `booking_policy.py` decision engine and deterministic policy in `DESIGN.md` §17.
+
+**Acceptance criteria.**
+
+Given a fixture set of bookings, the decision engine returns deterministic conflict decisions with no network access and no Fastmail code.
+
+---
+
+## Phase 12 — Fastmail invitation RSVP adapter (future / optional)
+
+**Goal.** Automatically accept or decline a Fastmail calendar invitation based on the booking decision engine.
+
+Only after the UX and conflict policy have been validated manually. First establish whether the selected HA calendar integration exposes RSVP at all; if not, choose between an in-repo adapter and a separate companion integration per `DESIGN.md` §17.
+
+**Acceptance criteria.**
+
+The booking policy remains testable without Fastmail. The provider adapter merely maps `ACCEPT`/`DECLINE` into the provider's supported RSVP mechanism.
+
+---
+
+## Phase 13 — Urgency-aware planning for unplanned trips (future)
+
+**Depends on:** Phases 1, 2, 4. Independent of the calendar phases.
+
+**Goal.** Keep the car drivable at short notice without a calendar booking, by acting
+on the reserve floor rather than only on the ready-by deadline.
+
+Most household driving is never booked. Cost optimization works against spontaneity:
+the cheapest plan deliberately leaves the battery low until the early hours.
+
+**Scope.** The planning rules, reconnection behavior, and approval interaction in
+`DESIGN.md` §6.4 — the urgency-aware search window, two-segment plans that restore the
+floor urgently then optimize the remainder normally, `auto_approve_urgent`, and urgent
+replanning when a car returns below the floor outside any window.
+
+The relaxation of the approval rule is strictly one-directional: urgency may add
+charging that was not explicitly approved, and may never cancel, shorten, or move an
+approved plan (ADR-003, ADR-007).
+
+**Acceptance criteria.**
+
+Driving the car to below the reserve floor at an arbitrary time produces charging that
+begins at the next opportunity rather than at the next cheapest window, while any
+already approved plan survives unchanged.
+
+---
+
+## Phase 14 — Planned distance calendar (future)
+
+**Depends on:** Phases 9 and 10. Can land before Phases 11 and 12.
+
+**Goal.** Show how far the car is planned to drive on each day of the look-ahead
+horizon.
+
+**Scope.** The aggregation rules and exposure format in `DESIGN.md` §17 — local-day
+totals with DST correctness, return-trip doubling, start-day attribution for multi-day
+bookings, and explicit `None`/incomplete handling for bookings without a distance.
+
+This is a derived read-model over `CarBooking` data. It makes no charging decisions and
+must not become a second source of truth.
+
+**Acceptance criteria.**
+
+A week of bookings produces a correct per-day distance breakdown; a booking with no
+stated distance marks its day incomplete rather than contributing zero; and a day whose
+planned distance exceeds usable range is visibly flagged.
+
+---
+
+## Phase 15 — Multiple vehicles and shared-resource coordination (future)
+
+**Depends on:** Phases 1–7. Should follow Phase 13, since a floor breach on one car
+competes with a normal plan on another.
+
+**Goal.** Support a household with more than one EV without double-booking a charger
+or exceeding the household supply limit.
+
+**Scope.** The allocation layer, priority rules, and config entry model in
+`DESIGN.md` §18. The single-vehicle planner is not modified (ADR-002, ADR-008); the
+allocator sits above it, consuming per-vehicle requirements rather than finished
+windows. Includes relaxing `single_config_entry` in `manifest.json` and adding a
+vehicle identifier to `CarBooking`.
+
+Before starting, verify the current state of the Home Assistant config subentry APIs
+against official developer documentation rather than assuming availability.
+
+**Acceptance criteria.**
+
+Two vehicles sharing one charger receive non-overlapping windows; two vehicles on
+separate chargers stay within the configured household power limit; and the priority
+rule that resolved any collision is inspectable rather than emergent.
+
+---
+
+## Later backlog
+
+Unordered, tracked in [TODO.md](TODO.md):
+
+split charging across non-contiguous cheapest intervals; price ceiling / "never charge above X unless required"; negative-price preference; solar forecast/surplus charging; dynamic charger current based on house load; multiple EVs sharing one connection limit; multiple chargers; historical actual charging power learning; learned wall-to-battery efficiency; charger session energy reconciliation; automatic completion detection from SoC target rather than schedule end; configurable tariff/tax components; custom Lovelace card; calendar UI helpers; route provider adapter; DC fast-charge stop planning; household priority rules; vacation/away mode.
+
+---
+
+## First coding session order
+
+1. Create the HACS-compatible folder structure.
+2. Add a minimal manifest and config flow that loads and unloads.
+3. Set up tests, HACS, and Hassfest CI.
+4. Implement `models.py`.
+5. Implement `planner.py` against synthetic prices.
+6. Write planner tests until the edge cases are trustworthy.
+7. Only then bind real Home Assistant entities.
+8. Capture sanitized Volvo/EDS/Zaptec entity examples as fixtures as each adapter or capability is implemented.
+
+Do not start by writing Zaptec service calls. The optimizer and state model are the foundation.
