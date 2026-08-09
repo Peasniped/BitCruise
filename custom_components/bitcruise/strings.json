@@ -108,6 +108,18 @@
       "grid_energy_required": { "name": "Grid energy required" },
       "required_charge_duration": { "name": "Required charge duration" },
       "reserve_floor_deficit": { "name": "Reserve floor deficit" },
+      "proposed_start": { "name": "Proposed start" },
+      "proposed_end": { "name": "Proposed end" },
+      "estimated_cost": { "name": "Estimated cost" },
+      "estimated_soc_at_ready": { "name": "Estimated charge at ready time" },
+      "price_quality": {
+        "name": "Price quality",
+        "state": {
+          "actual": "Actual",
+          "forecast": "Forecast",
+          "mixed": "Mixed"
+        }
+      },
       "plan_status": {
         "name": "Plan status",
         "state": {
@@ -127,7 +139,8 @@
     },
     "binary_sensor": {
       "charge_needed": { "name": "Charge needed" },
-      "vehicle_connected": { "name": "Vehicle connected" }
+      "vehicle_connected": { "name": "Vehicle connected" },
+      "target_unreachable": { "name": "Target unreachable" }
     }
   }
 }

@@ -22,8 +22,34 @@ async def async_setup_entry(
     """Set up the BitCruise binary sensors."""
     coordinator = entry.runtime_data
     async_add_entities(
-        [BitCruiseChargeNeeded(coordinator), BitCruiseVehicleConnected(coordinator)]
+        [
+            BitCruiseChargeNeeded(coordinator),
+            BitCruiseVehicleConnected(coordinator),
+            BitCruiseCanMeetTarget(coordinator),
+        ]
     )
+
+
+class BitCruiseCanMeetTarget(BitCruiseEntity, BinarySensorEntity):
+    """Whether the plan reaches the charge target before the deadline."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: BitCruiseCoordinator) -> None:
+        """Set up the entity."""
+        super().__init__(coordinator, "target_unreachable")
+
+    @property
+    def is_on(self) -> bool | None:
+        """True when the target cannot be met.
+
+        Reported as a problem rather than as "can meet target" so it is off in
+        the healthy case and draws attention only when the car will fall short.
+        """
+        plan = self.coordinator.data.plan
+        if plan is None:
+            return None
+        return not plan.can_meet_target
 
 
 class BitCruiseChargeNeeded(BitCruiseEntity, BinarySensorEntity):

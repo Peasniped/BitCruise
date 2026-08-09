@@ -20,6 +20,7 @@ from .const import (
     CONF_CHARGING_POWER_KW,
     CONF_NOT_BEFORE,
     CONF_PLUG_ENTITY,
+    CONF_PRICE_ENTITY,
     CONF_READY_BY,
     CONF_RESERVE_FLOOR_PCT,
     CONF_SOC_ENTITY,
@@ -31,8 +32,14 @@ from .const import (
     DEFAULT_RESERVE_FLOOR_PCT,
     DOMAIN,
 )
-from .models import ChargeRequirement, InvalidPlanningInput, PlanningInput
-from .planner import compute_requirement
+from .models import (
+    ChargePlan,
+    ChargeRequirement,
+    InvalidPlanningInput,
+    PlanningInput,
+)
+from .planner import compute_requirement, plan_charging
+from .price_sources import PriceData, parse_price_attributes
 from .source_normalization import (
     DataFreshness,
     PlugStatus,
@@ -53,6 +60,7 @@ class BitCruiseData:
     """Everything the entities need for one evaluation."""
 
     requirement: ChargeRequirement | None
+    plan: ChargePlan | None
     problems: tuple[str, ...]
     plug_status: PlugStatus
     freshness: DataFreshness
@@ -60,6 +68,8 @@ class BitCruiseData:
     target_soc_pct: float | None
     usable_capacity_kwh: float | None
     ready_by: datetime | None
+    currency: str | None = None
+    price_interval_count: int = 0
 
     @property
     def is_usable(self) -> bool:
@@ -126,6 +136,7 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             CONF_CAPACITY_ENTITY,
             CONF_PLUG_ENTITY,
             CONF_AVAILABILITY_ENTITY,
+            CONF_PRICE_ENTITY,
         )
         options = self.options
         return [value for key in keys if (value := options.get(key))]
@@ -220,7 +231,10 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         now = dt_util.now()
         ready_by = next_occurrence(now, ready_by_time) if ready_by_time else None
 
+        price_data = self._read_prices(problems)
+
         requirement: ChargeRequirement | None = None
+        plan: ChargePlan | None = None
         if soc is not None and target is not None and capacity is not None:
             not_before_time = parse_time_option(options.get(CONF_NOT_BEFORE))
             floor = float(
@@ -259,13 +273,17 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
                         if not_before_time
                         else None
                     ),
+                    price_intervals=price_data.intervals if price_data else (),
                 )
                 requirement = compute_requirement(planning_input)
+                if price_data is not None and price_data.is_usable:
+                    plan = plan_charging(planning_input)
             except InvalidPlanningInput as err:
                 problems.append(str(err))
 
         return BitCruiseData(
             requirement=requirement,
+            plan=plan,
             problems=tuple(problems),
             plug_status=plug,
             freshness=freshness,
@@ -273,4 +291,21 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             target_soc_pct=target,
             usable_capacity_kwh=capacity,
             ready_by=ready_by,
+            currency=price_data.currency if price_data else None,
+            price_interval_count=len(price_data.intervals) if price_data else 0,
         )
+
+    def _read_prices(self, problems: list[str]) -> PriceData | None:
+        """Parse the selected price entity, if one is configured."""
+        entity_id = self.options.get(CONF_PRICE_ENTITY)
+        if not entity_id:
+            return None
+
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            problems.append(f"{entity_id}: price entity unavailable")
+            return None
+
+        data = parse_price_attributes(state.attributes, source=entity_id)
+        problems.extend(f"{entity_id}: {problem}" for problem in data.problems)
+        return data

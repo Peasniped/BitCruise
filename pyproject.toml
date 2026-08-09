@@ -47,7 +47,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Test names describe the behaviour; a docstring on every method is noise.
 # Class docstrings (D101) are still required, since they group the cases.
-"tests/*" = ["ANN201", "D100", "D102", "D103"]
+"tests/*" = ["ANN201", "ANN401", "D100", "D102", "D103", "RUF012"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"
