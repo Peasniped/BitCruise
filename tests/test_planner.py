@@ -19,18 +19,15 @@ from custom_components.bitcruise.models import (
 )
 from custom_components.bitcruise.planner import compute_requirement, plan_charging
 
-from .builders import CPH, at, hourly, planning_input, quarter_hourly
-
-# 24 flat-priced hours from midnight, used as a neutral backdrop.
-FLAT_24 = ["2.0"] * 24
-
-
-def prices_with_cheap_pair(index: int, cheap: str = "0.1") -> list[str]:
-    """Flat prices with two cheap consecutive hours starting at ``index``."""
-    prices = list(FLAT_24)
-    prices[index] = cheap
-    prices[index + 1] = cheap
-    return prices
+from .builders import (
+    CPH,
+    FLAT_24,
+    at,
+    hourly,
+    planning_input,
+    prices_with_cheap_pair,
+    quarter_hourly,
+)
 
 
 class TestDeficitCalculations:
@@ -387,6 +384,20 @@ class TestDeterminism:
     def test_same_input_gives_same_plan_id(self) -> None:
         data = planning_input(price_intervals=hourly(at(0), prices_with_cheap_pair(9)))
         assert plan_charging(data).id == plan_charging(data).id
+
+    def test_plan_id_survives_the_clock_moving_on(self) -> None:
+        """The same window replanned later is the same plan, not a new one.
+
+        The approval machine suppresses a plan the user already rejected by id.
+        If the moment of calculation fed into the id, every recomputation would
+        look new and the rejected window would be proposed again immediately.
+        """
+        prices = hourly(at(0), prices_with_cheap_pair(9))
+        early = plan_charging(planning_input(now=at(1), price_intervals=prices))
+        late = plan_charging(planning_input(now=at(2), price_intervals=prices))
+
+        assert early.start == late.start
+        assert early.id == late.id
 
     def test_different_window_gives_different_plan_id(self) -> None:
         first = plan_charging(

@@ -37,6 +37,18 @@ def advance(moment: datetime, delta: timedelta) -> datetime:
     return (moment.astimezone(UTC) + delta).astimezone(moment.tzinfo)
 
 
+# 24 flat-priced hours from midnight, used as a neutral backdrop.
+FLAT_24 = ["2.0"] * 24
+
+
+def prices_with_cheap_pair(index: int, cheap: str = "0.1") -> list[str]:
+    """Flat prices with two cheap consecutive hours starting at ``index``."""
+    prices = list(FLAT_24)
+    prices[index] = cheap
+    prices[index + 1] = cheap
+    return prices
+
+
 def hourly(
     start: datetime,
     prices: Sequence[str],

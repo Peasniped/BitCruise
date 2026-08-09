@@ -230,7 +230,10 @@ def _plan_id(*parts: object) -> str:
     """Derive a stable identifier from plan content.
 
     Identical inputs produce an identical id, so the orchestration layer can tell
-    a genuinely new plan from a recalculation that changed nothing.
+    a genuinely new plan from a recalculation that changed nothing. The moment
+    of calculation is deliberately excluded: including it would make every
+    recomputation look like a new plan, and the approval machine would re-ask
+    for a window the user had already answered on.
     """
     payload = "|".join(str(part) for part in parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
@@ -246,7 +249,7 @@ def _estimated_soc(data: PlanningInput, planned_grid_kwh: float) -> float:
 def _no_charge_plan(data: PlanningInput, requirement: ChargeRequirement) -> ChargePlan:
     """Plan for a car that is already at or above its target."""
     return ChargePlan(
-        id=_plan_id("no-charge", data.now, data.current_soc_pct, data.target_soc_pct),
+        id=_plan_id("no-charge", data.current_soc_pct, data.target_soc_pct),
         created_at=data.now,
         start=None,
         end=None,
@@ -271,7 +274,7 @@ def _no_charge_plan(data: PlanningInput, requirement: ChargeRequirement) -> Char
 def _no_window_plan(data: PlanningInput, requirement: ChargeRequirement) -> ChargePlan:
     """Plan for when charging is needed but no usable price interval exists."""
     return ChargePlan(
-        id=_plan_id("no-window", data.now, data.current_soc_pct, data.target_soc_pct),
+        id=_plan_id("no-window", data.current_soc_pct, data.target_soc_pct),
         created_at=data.now,
         start=None,
         end=None,
@@ -302,7 +305,7 @@ def _build_plan(
     shortfall = max(requirement.grid_energy_required_kwh - candidate.planned_kwh, 0.0)
 
     return ChargePlan(
-        id=_plan_id(start, end, requirement.grid_energy_required_kwh, data.now),
+        id=_plan_id(start, end, requirement.grid_energy_required_kwh),
         created_at=data.now,
         start=start,
         end=end,
