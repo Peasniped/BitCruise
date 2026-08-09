@@ -33,6 +33,16 @@ SETTINGS: dict[str, Any] = {
 }
 
 
+def settings_without(*keys: str) -> dict[str, Any]:
+    """Settings minus the given keys.
+
+    The settings schema omits the fixed target and capacity fields when the
+    matching entity is selected, and voluptuous rejects extra keys, so tests must
+    submit exactly what the form would have rendered.
+    """
+    return {k: v for k, v in SETTINGS.items() if k not in keys}
+
+
 @pytest.fixture(autouse=True)
 def _sources(hass: HomeAssistant) -> None:
     """Provide the source entities the flow and coordinator expect."""
@@ -141,7 +151,8 @@ async def test_floor_checked_against_target_entity(hass: HomeAssistant) -> None:
         result["flow_id"], {**SOURCES, CONF_TARGET_ENTITY: TARGET_ENTITY}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {**SETTINGS, CONF_RESERVE_FLOOR_PCT: 95}
+        result["flow_id"],
+        {**settings_without(CONF_TARGET_FIXED_PCT), CONF_RESERVE_FLOOR_PCT: 95},
     )
 
     assert result["type"] is FlowResultType.FORM
