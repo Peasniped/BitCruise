@@ -183,7 +183,10 @@ that reads an entity. Highlights that change the plan:
 - [x] Options flow for the adjustable settings; the entry reloads so changes apply immediately.
 - [x] Store bindings in `ConfigEntry.data`, behavior in `ConfigEntry.options`.
 - [x] Typed `ConfigEntry.runtime_data` via `BitCruiseConfigEntry`.
-- [ ] Reconfigure flow for changing the source entities without deleting the entry.
+- [x] Reconfigure flow for changing the source entities without deleting the entry, pre-filled with the current selections.
+- [x] Omit the fixed target and capacity fields when the matching entity is selected — they were dead inputs the entity always overrode.
+- [x] Reject a target entity not measured in `%`, catching a charging *current* limit picked by mistake.
+- [x] An invalid reserve floor is clamped and reported rather than blanking every sensor.
 
 ### Normalization (`source_normalization.py`)
 
@@ -226,7 +229,10 @@ reads `hass.states` and passes raw values in.
 - [x] Entities: unavailable source reports `error` and names the entity.
 - [x] Entities: stale vehicle data flagged.
 - [x] Entities: plug `fault` reports `unknown`, not `off`.
-- [ ] Config flow: reconfigure — pending the reconfigure flow itself.
+- [x] Config flow: reconfigure changes sources and keeps settings.
+- [x] Config flow: fixed fields hidden when the matching entity is selected, shown when it is not.
+- [x] Config flow: a target measured in amps is rejected.
+- [x] Entities: a bad reserve floor does not blank the deficit figures.
 
 ## Phase 3 — Energi Data Service + Carnot price adapter
 
