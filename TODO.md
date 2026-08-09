@@ -19,6 +19,8 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [x] `integration_type: service`, `iot_class: calculated`. `helper` was tried first and is wrong: it files the integration under the Helpers tab, and the Helpers UI opens an options flow on click, so an integration without one fails with "Invalid handler specified" (home-assistant/frontend#15044). `helper` is for automation aids such as input booleans and derivatives; the calculated nature is already carried by `iot_class`. Covered by a regression test in `tests/test_manifest.py`.
 - [x] `single_config_entry: true` for V1, since multi-car is an explicit non-goal. Loosening this later is backwards compatible.
 - [x] Test suite split into pure `tests/` and `tests/ha/` so the planner can be developed on Windows (see `DESIGN.md` §15).
+- [x] Currency is `Decimal`; energy, power and SoC stay `float`. Conversion happens only at the price × energy boundary, so repeated cost addition is exact.
+- [x] Whole price intervals are allocated, with the slack reported as `over_allocation_kwh`. Cost is charged on the energy actually expected to be drawn, since the car stops at target rather than running the window out.
 
 ## Open decisions
 
@@ -29,7 +31,6 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [ ] Whether the household supply limit belongs in BitCruise or should read an existing HA power sensor.
 - [ ] Whether the final price interval may be partially allocated in V1, or always whole.
 - [ ] Default approval policy for V1: `always_ask` vs `ask_on_change`.
-- [ ] Currency handling: `Decimal` vs `float` for price and cost summation.
 
 ---
 
@@ -55,7 +56,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [x] Push to GitHub so the three CI workflows actually execute. Pushed to `Peasniped/BitCruise` at `a28ff7b`.
 - [x] Run `tests/ha/test_config_flow.py` on Linux/macOS or CI. Passed in CI on Python 3.14 — first execution; they cannot run on Windows.
 - [x] Hassfest validation passes.
-- [ ] **HACS validation fails: repository topics are not set.** Add topics on GitHub (Settings, or the gear beside "About"), e.g. `home-assistant`, `homeassistant`, `hacs`, `custom-component`, `integration`, `ev-charging`, `home-automation`. Then re-run the HACS workflow. Repo description, issues, and `hacs.json` already satisfy their checks.
+- [x] HACS validation passes. It initially failed because repository topics were unset; topics were added on GitHub and the check went green. Note the `home-as` topic looks like a truncated `home-assistant` — harmless for validation, worth fixing for discoverability.
 - [x] Verify: config entry loads and unloads in a real HA instance. Confirmed on HA OS 2026.8.1 — integration discoverable, config flow completes, second entry rejected, entry deletes cleanly with no restart and no log output. This test is what caught the `integration_type` bug.
 - [ ] Submit `icon.png` to `home-assistant/brands` before the first public release, then drop `ignore: brands` from `.github/workflows/hacs.yml`.
 - [ ] Typed `ConfigEntry.runtime_data` — deferred to Phase 2, when there is runtime state worth storing.
@@ -64,60 +65,86 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 
 ### Models (`models.py`)
 
-- [ ] `PriceQuality` enum (`ACTUAL`, `FORECAST`).
-- [ ] `PriceInterval` frozen dataclass.
-- [ ] `PlanStatus` enum covering the full state model in `DESIGN.md` §4.
-- [ ] `PlanSource` / proposal-reason enum.
-- [ ] `PlanningInput`, including `reserve_floor_pct`.
-- [ ] `ChargeRequirement`.
-- [ ] `ChargeUrgency` enum (`NORMAL`, `URGENT`).
-- [ ] `ChargePlan` with the fields listed in `DESIGN.md` §4, including `urgency` and `below_reserve_floor`.
+- [x] `PriceQuality` enum (`ACTUAL`, `FORECAST`).
+- [x] `PriceInterval` frozen dataclass.
+- [x] `PlanStatus` enum covering the full state model in `DESIGN.md` §4.
+- [x] `PlanSource` / proposal-reason enum.
+- [x] `PlanningInput`, including `reserve_floor_pct`.
+- [x] `ChargeRequirement`.
+- [x] `ChargeUrgency` enum (`NORMAL`, `URGENT`).
+- [x] `ChargePlan` with the fields listed in `DESIGN.md` §4, including `urgency` and `below_reserve_floor`.
+- [x] `PlanPriceQuality` enum (`ACTUAL`, `FORECAST`, `MIXED`) — plan-level aggregate, distinct from per-interval `PriceQuality`.
+- [x] `to_utc` / `elapsed_hours` helpers. **Every** datetime comparison and duration must go through these; see the DST note below.
 
 ### Calculations (`planner.py`)
 
-- [ ] Deficit percentage points.
-- [ ] Battery deficit kWh.
-- [ ] Reserve floor deficit (`floor_deficit_pct`, `floor_deficit_kwh`) per `DESIGN.md` §5.
-- [ ] Validate `reserve_floor_pct <= target_soc_pct`; surface a violation rather than reordering.
-- [ ] Grid energy requirement with charging efficiency.
-- [ ] Required duration at configured charging power.
-- [ ] Estimated SoC after planned charge.
-- [ ] Estimated charging cost.
-- [ ] Report expected over-allocation when the final interval is whole.
+- [x] Deficit percentage points.
+- [x] Battery deficit kWh.
+- [x] Reserve floor deficit (`floor_deficit_pct`, `floor_deficit_kwh`) per `DESIGN.md` §5.
+- [x] Validate `reserve_floor_pct <= target_soc_pct`; surface a violation rather than reordering.
+- [x] Grid energy requirement with charging efficiency.
+- [x] Required duration at configured charging power.
+- [x] Estimated SoC after planned charge.
+- [x] Estimated charging cost.
+- [x] Report expected over-allocation when the final interval is whole (`allocated_grid_kwh`, `over_allocation_kwh`).
 
 ### Optimizer
 
-- [ ] Normalize and clip price slots to `[earliest_start, ready_by)`.
-- [ ] Enumerate contiguous sequences that deliver enough energy.
-- [ ] Cost each candidate (duration × power × price).
-- [ ] Select the lowest cost, tie-breaking on earliest start.
-- [ ] Best-effort/shortfall result when the target is unreachable.
+- [x] Normalize and clip price slots to `[earliest_start, ready_by)`.
+- [x] Enumerate contiguous sequences that deliver enough energy.
+- [x] Cost each candidate (duration × power × price).
+- [x] Select the lowest cost, tie-breaking on earliest start.
+- [x] Best-effort/shortfall result when the target is unreachable.
+- [x] Reject overlapping intervals; treat gaps as breaking contiguity.
+- [x] Deterministic plan `id` derived from content, so a recalculation that changes nothing is recognisable as unchanged.
 
 ### Planner tests
 
-- [ ] zero deficit;
-- [ ] 10% / 50% / 100% deficits;
-- [ ] target below current SoC;
-- [ ] fractional required interval / partial final interval;
-- [ ] cheapest window at start, middle, and end of horizon;
-- [ ] equal-price deterministic tie;
-- [ ] window crosses midnight;
-- [ ] mixed actual + forecast horizon;
-- [ ] actual replaces forecast;
-- [ ] price gap / missing interval;
-- [ ] insufficient price horizon;
-- [ ] impossible deadline;
-- [ ] 15-minute prices;
-- [ ] 60-minute prices;
-- [ ] DST spring-forward day (23 hours);
-- [ ] DST fall-back day (25 hours);
-- [ ] negative prices;
-- [ ] very high prices;
-- [ ] charging efficiency < 1;
-- [ ] numeric precision / currency summation;
-- [ ] reserve floor of 0 reproduces deadline-driven behavior exactly;
-- [ ] floor deficit computed correctly when SoC is above, at, and below the floor;
-- [ ] floor above target is rejected.
+96 pure tests, all passing on Windows via `pytest -p no:homeassistant --ignore=tests/ha`.
+
+- [x] zero deficit;
+- [x] 10% / 50% / 100% deficits;
+- [x] target below current SoC;
+- [x] fractional required interval / partial final interval;
+- [x] cheapest window at start, middle, and end of horizon;
+- [x] equal-price deterministic tie;
+- [x] window crosses midnight;
+- [x] mixed actual + forecast horizon;
+- [ ] actual replaces forecast — belongs to the price adapter, moved to Phase 3. The planner only sees already-merged intervals.
+- [x] price gap / missing interval;
+- [x] insufficient price horizon;
+- [x] impossible deadline;
+- [x] 15-minute prices;
+- [x] 60-minute prices;
+- [x] DST spring-forward day (23 hours);
+- [x] DST fall-back day (25 hours);
+- [x] negative prices;
+- [x] very high prices;
+- [x] charging efficiency < 1;
+- [x] numeric precision / currency summation;
+- [x] reserve floor of 0 reproduces deadline-driven behavior exactly;
+- [x] floor deficit computed correctly when SoC is above, at, and below the floor;
+- [x] floor above target is rejected;
+- [x] unsorted input is sorted; overlapping input is rejected;
+- [x] identical inputs produce an identical plan id.
+
+### DST: the trap this phase uncovered
+
+Python does **wall-clock** arithmetic when two aware datetimes share a `tzinfo`,
+which is wrong twice a year and was wrong in the first draft of the planner:
+
+- `end - start` for 01:00→03:00 on a spring-forward day returned 2 hours when only
+  1 hour elapses, so the planner would have believed it could deliver twice the
+  energy it actually can.
+- `moment + timedelta(hours=1)` returns a wall-clock time, which on a
+  spring-forward day is 02:00 — an instant that does not exist.
+- The repeated 02:00 hour on a fall-back day makes two genuinely different
+  instants compare *equal*, breaking sorting and overlap detection.
+
+Fixed by routing every comparison, duration and ordering through `to_utc`.
+Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
+**Any new datetime arithmetic in this project must go through `to_utc` or
+`elapsed_hours`.**
 
 ## Phase 2 — HA source binding and visible sensors
 
