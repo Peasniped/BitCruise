@@ -64,6 +64,14 @@ def _plan_value(data: BitCruiseData, attribute: str) -> SensorValue:
     return getattr(data.plan, attribute)
 
 
+def _window_mean_price(data: BitCruiseData) -> Decimal | None:
+    """Average price per kWh actually paid across the planned window."""
+    plan = data.plan
+    if plan is None or plan.estimated_cost is None or plan.planned_grid_kwh <= 0:
+        return None
+    return plan.estimated_cost / Decimal(str(plan.planned_grid_kwh))
+
+
 SENSORS: tuple[BitCruiseSensorDescription, ...] = (
     BitCruiseSensorDescription(
         key="charging_deficit",
@@ -138,6 +146,13 @@ SENSORS: tuple[BitCruiseSensorDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=0,
         value_fn=lambda data: _plan_value(data, "estimated_soc_at_end"),
+    ),
+    BitCruiseSensorDescription(
+        key="ready_by",
+        translation_key="ready_by",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.ready_by,
     ),
     BitCruiseSensorDescription(
         key="price_quality",
@@ -216,4 +231,9 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             "can_meet_target": plan.can_meet_target if plan else None,
             "shortfall_kwh": plan.shortfall_kwh if plan else None,
             "over_allocation_kwh": plan.over_allocation_kwh if plan else None,
+            # These two together explain why a window was chosen. When the mean
+            # is well above the cheapest price available, the ready-by deadline
+            # ruled the cheap period out rather than the planner missing it.
+            "window_mean_price": _window_mean_price(data),
+            "cheapest_price_in_horizon": data.cheapest_price_in_horizon,
         }

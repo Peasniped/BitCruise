@@ -129,7 +129,7 @@ async def test_plan_uses_actual_prices_when_available(
     await _setup(hass)
 
     assert hass.states.get("sensor.bitcruise_price_quality").state == "actual"
-    assert hass.states.get("binary_sensor.bitcruise_target_unreachable").state == "off"
+    assert hass.states.get("binary_sensor.bitcruise_charge_shortfall").state == "off"
     assert (
         float(hass.states.get("sensor.bitcruise_estimated_soc_at_ready").state) == 90.0
     )
@@ -157,7 +157,7 @@ async def test_short_horizon_reports_shortfall(hass: HomeAssistant) -> None:
     """
     await _setup(hass, soc="5", settings={**SETTINGS, CONF_CHARGING_POWER_KW: 3.7})
 
-    assert hass.states.get("binary_sensor.bitcruise_target_unreachable").state == "on"
+    assert hass.states.get("binary_sensor.bitcruise_charge_shortfall").state == "on"
     status = hass.states.get("sensor.bitcruise_plan_status")
     assert status.attributes["can_meet_target"] is False
     assert status.attributes["shortfall_kwh"] > 0

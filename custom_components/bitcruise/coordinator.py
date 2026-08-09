@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
@@ -70,6 +71,7 @@ class BitCruiseData:
     ready_by: datetime | None
     currency: str | None = None
     price_interval_count: int = 0
+    cheapest_price_in_horizon: Decimal | None = None
 
     @property
     def is_usable(self) -> bool:
@@ -293,6 +295,11 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             ready_by=ready_by,
             currency=price_data.currency if price_data else None,
             price_interval_count=len(price_data.intervals) if price_data else 0,
+            cheapest_price_in_horizon=(
+                min(interval.price_per_kwh for interval in price_data.intervals)
+                if price_data and price_data.intervals
+                else None
+            ),
         )
 
     def _read_prices(self, problems: list[str]) -> PriceData | None:

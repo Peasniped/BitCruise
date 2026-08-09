@@ -112,6 +112,7 @@
       "proposed_end": { "name": "Proposed end" },
       "estimated_cost": { "name": "Estimated cost" },
       "estimated_soc_at_ready": { "name": "Estimated SoC at ready" },
+      "ready_by": { "name": "Ready by" },
       "price_quality": {
         "name": "Price quality",
         "state": {
@@ -140,7 +141,7 @@
     "binary_sensor": {
       "charge_needed": { "name": "Charge needed" },
       "vehicle_connected": { "name": "Vehicle connected" },
-      "target_unreachable": { "name": "Target unreachable" }
+      "target_unreachable": { "name": "Charge shortfall" }
     }
   }
 }
