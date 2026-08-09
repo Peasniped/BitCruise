@@ -10,7 +10,7 @@ This is the *what* and *why*. See [PLAN.md](PLAN.md) for delivery phases, [TODO.
 
 Project name: **BitCruise**
 
-GitHub repository: `BitPusher/BitCruise`
+GitHub repository: `Peasniped/BitCruise`
 
 Home Assistant custom integration domain: `bitcruise`
 

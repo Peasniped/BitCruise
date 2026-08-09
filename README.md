@@ -24,7 +24,7 @@ charger, or electricity provider.
 
 | Phase | Status |
 | --- | --- |
-| 0 — Repository bootstrap | In progress |
+| 0 — Repository bootstrap | Loads and unloads on HA 2026.8.1 |
 | 1 — Pure charging planner | Not started |
 | 2 — HA source binding and sensors | Not started |
 | 3 — Price adapter (Energi Data Service / Carnot) | Not started |
@@ -61,7 +61,7 @@ are simply what the first release is tested against.
 ### HACS (recommended, once releases exist)
 
 1. In HACS, open the three-dot menu and choose **Custom repositories**.
-2. Add `https://github.com/BitPusher/BitCruise` with category **Integration**.
+2. Add `https://github.com/Peasniped/BitCruise` with category **Integration**.
 3. Install **BitCruise**, then restart Home Assistant.
 4. Go to **Settings → Devices & services → Add integration** and search for
    **BitCruise**.

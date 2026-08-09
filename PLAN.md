@@ -12,7 +12,7 @@ The project builds in layers. The first useful release solves charging well befo
 
 | Phase | Title | Status |
 | --- | --- | --- |
-| 0 | Repository bootstrap | Not started |
+| 0 | Repository bootstrap | Verified on hardware; CI not yet run |
 | 1 | Domain model and pure charging planner | Not started |
 | 2 | HA source binding and visible sensors | Not started |
 | 3 | Energi Data Service + Carnot price adapter | Not started |
@@ -32,7 +32,7 @@ The project builds in layers. The first useful release solves charging well befo
 Phases 0–8 are ordered and build on each other. Phases 9–15 are future work and are
 not strictly ordered among themselves; each states its own dependencies.
 
-Decided already: repository `BitPusher/BitCruise`, integration domain `bitcruise`,
+Decided already: repository `Peasniped/BitCruise`, integration domain `bitcruise`,
 one vehicle per installation for V1 (`DESIGN.md` ADR-008).
 
 ---

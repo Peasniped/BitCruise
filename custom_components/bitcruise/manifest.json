@@ -1,13 +1,13 @@
 {
   "domain": "bitcruise",
   "name": "BitCruise",
-  "codeowners": ["@BitPusher"],
+  "codeowners": ["@Peasniped"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/BitPusher/BitCruise",
+  "documentation": "https://github.com/Peasniped/BitCruise",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/BitPusher/BitCruise/issues",
+  "issue_tracker": "https://github.com/Peasniped/BitCruise/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.0.1"

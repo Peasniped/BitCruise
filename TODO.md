@@ -10,13 +10,13 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 
 ## Decisions already made
 
-- [x] Repository name: `BitPusher/BitCruise`
+- [x] Repository name: `Peasniped/BitCruise`. Early drafts said `BitPusher/BitCruise`; no such org exists.
 - [x] Integration domain: `bitcruise`
 - [x] Documentation split: `CLAUDE.md` (agent instructions) / `DESIGN.md` (spec) / `PLAN.md` (phases) / `TODO.md` (backlog)
-- [x] Licence: MIT, copyright BitPusher.
+- [x] Licence: MIT, copyright Peasniped. Change to a legal name if the project is ever distributed formally.
 - [x] Minimum Home Assistant version: `2026.8.0`, matching the target instance.
 - [x] Python 3.14 — required by HA 2026.3 and newer. A 3.13 environment silently resolves HA back to 2026.2.x.
-- [x] `integration_type: helper`, `iot_class: calculated` — BitCruise derives state from other entities rather than talking to hardware.
+- [x] `integration_type: service`, `iot_class: calculated`. `helper` was tried first and is wrong: it files the integration under the Helpers tab, and the Helpers UI opens an options flow on click, so an integration without one fails with "Invalid handler specified" (home-assistant/frontend#15044). `helper` is for automation aids such as input booleans and derivatives; the calculated nature is already carried by `iot_class`. Covered by a regression test in `tests/test_manifest.py`.
 - [x] `single_config_entry: true` for V1, since multi-car is an explicit non-goal. Loosening this later is backwards compatible.
 - [x] Test suite split into pure `tests/` and `tests/ha/` so the planner can be developed on Windows (see `DESIGN.md` §15).
 
@@ -54,7 +54,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [x] Document local VS Code development setup in the README.
 - [ ] Push to GitHub so the three CI workflows actually execute. **Not yet verified — they have never run.**
 - [ ] Run `tests/ha/test_config_flow.py` on Linux/macOS or CI. **Not yet verified — cannot execute on Windows.**
-- [ ] Verify: config entry loads and unloads in a real HA instance.
+- [x] Verify: config entry loads and unloads in a real HA instance. Confirmed on HA OS 2026.8.1 — integration discoverable, config flow completes, second entry rejected, entry deletes cleanly with no restart and no log output. This test is what caught the `integration_type` bug.
 - [ ] Submit `icon.png` to `home-assistant/brands` before the first public release, then drop `ignore: brands` from `.github/workflows/hacs.yml`.
 - [ ] Typed `ConfigEntry.runtime_data` — deferred to Phase 2, when there is runtime state worth storing.
 

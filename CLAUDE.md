@@ -22,7 +22,7 @@ Instructions for Claude working in this repository.
 
 **BitCruise** is a Home Assistant custom integration that plans and executes residential EV charging from entities that already exist in Home Assistant.
 
-- GitHub repository: `BitPusher/BitCruise`
+- GitHub repository: `Peasniped/BitCruise`
 - Integration domain: `bitcruise` — **final**. It appears in entity IDs, storage, config entries, and user installations. Do not rename it.
 
 Everything else about the product lives in the documents below. Do not restate spec content here.
