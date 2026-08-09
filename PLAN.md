@@ -121,6 +121,12 @@ An already approved schedule can never be silently changed by a background repla
 
 **Scope.** The optional notification target, warning offset (default 15 minutes), and the notification cases and message shapes in `DESIGN.md` §8.
 
+Includes the cheap power alert (§8), which is independent of the car: it fires whether
+or not charging is needed and is not gated on the smart charging switch. It needs the
+Phase 3 price curve, and its main design risk is nuisance rather than correctness —
+one notification per cheap *window*, never per interval, and never repeated when the
+price curve refreshes.
+
 Buttons in notifications invoke the same integration actions as dashboard buttons. Approval logic is never duplicated inside notification handling.
 
 **Acceptance criteria.**

@@ -146,6 +146,24 @@ Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
 **Any new datetime arithmetic in this project must go through `to_utc` or
 `elapsed_hours`.**
 
+## Reference installation
+
+Real entity names, shapes and traps from the development installation are recorded in
+[`docs/reference-installation.md`](docs/reference-installation.md), with the price
+snapshot in `tests/fixtures/energidataservice.json`. Read it before writing anything
+that reads an entity. Highlights that change the plan:
+
+- [ ] Charge target is **readable but not writable** (`sensor.volvo_xc40_target_battery_charge_level`, no `number`). Future trip preparation must notify rather than set it.
+- [ ] Plug status is an **enum `sensor`** with a third `fault` state, not a `binary_sensor`.
+- [ ] `charging_limit` is **amps**, not a target percentage.
+- [ ] The target sensor has **no `device_class`**, so a picker filtered on `device_class: battery` will not show it.
+- [ ] `car_connection` (`no_internet`, `power_saving_mode`) is a **staleness signal** — treat as an unsafe-input gate per `DESIGN.md` §3.4.
+- [ ] Capacity is discoverable (`81.608 kWh`), so manual entry is an override.
+- [ ] Charger control entities are **`unavailable` while unplugged** — that is "cannot act yet", not an error.
+- [ ] Real charger capability is **16 A three-phase ≈ 11 kW**, not 10 kW.
+- [ ] Measured consumption exists (`17.9 kWh/100km`) — the trip model can read it.
+- [x] **Resolved:** EDS applies tariffs and surcharges itself, so the exposed price is the true all-in price per kWh. Never add the `tariffs` attribute to it — that double-counts and inflates cost by ~40%.
+
 ## Phase 2 — HA source binding and visible sensors
 
 ### Config flow
@@ -153,7 +171,7 @@ Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
 - [ ] Vehicle: battery SoC entity.
 - [ ] Vehicle: target SoC entity **or** fixed target percentage.
 - [ ] Vehicle: usable capacity entity **or** fixed kWh.
-- [ ] Vehicle: connected binary sensor/entity.
+- [ ] Vehicle: connected entity. Must accept an **enum `sensor`** as well as a `binary_sensor` — the Volvo integration exposes `charging_connection_status` with options `connected` / `disconnected` / `fault`. Treat `fault` as "not connected, and say so" rather than folding it into disconnected.
 - [ ] Vehicle: optional charging-state entity.
 - [ ] Vehicle: reserve floor percentage, validated against the target. Default `0` (disabled).
 - [ ] Charging: fixed charging power, default 10 kW.
@@ -197,8 +215,11 @@ Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
 
 ## Phase 3 — Energi Data Service + Carnot price adapter
 
-- [ ] Capture real attributes from the user's EDS sensor.
-- [ ] Freeze them as sanitized test fixtures.
+- [ ] Build fixtures from the Energi Data Service integration's published attribute schema — do **not** ask the user to paste their entity state. The user picks an entity; adapters work out how to read it (`DESIGN.md` §12).
+- [ ] Normalize the `unit` attribute (`MWh` / `kWh` / `Wh`). EDS can report per MWh, which would make every cost wrong by 1000×.
+- [ ] Carry `currency` through to the cost sensor rather than assuming DKK.
+- [ ] Auto-detect across known conventions; fail loudly with an actionable error when none match.
+- [ ] Expose what was parsed (source, interval count, actual/forecast mix) so correctness is confirmed by reading a sensor.
 - [ ] Parse today's actual prices.
 - [ ] Parse tomorrow's actual prices.
 - [ ] Parse Carnot forecast intervals.
@@ -245,6 +266,20 @@ Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
 - [ ] Optional completion summary.
 - [ ] Actionable buttons call the same integration actions as dashboard controls.
 - [ ] Verify the integration is fully operable with no notification target configured.
+
+### Cheap power alert (needs Phase 3 prices; independent of the car)
+
+- [ ] `number.cheap_price_threshold`, in the **units of the selected price entity** — `0.50` for `DKK/kWh`, `50` for øre when `use_cent` is set. Show the entity's unit in the UI; reinterpret if the user later picks a price entity with a different unit.
+- [ ] Group contiguous below-threshold intervals into a single window; notify **once per window**, not per interval.
+- [ ] Identify a window by its start instant so a refreshed price curve does not re-notify for the same window.
+- [ ] At most one update when a known window materially changes shape; never notify for a window already in the past.
+- [ ] Configurable lead time, so the alert arrives while it is still actionable.
+- [ ] Distinct message for negative prices ("you are paid to use power").
+- [ ] `binary_sensor.cheap_power` — on while the current price is below the threshold.
+- [ ] `sensor.next_cheap_period` — next window start, with end, duration, min and mean price as attributes.
+- [ ] Both entities report `unknown`, not `off`, when no price data exists — "none coming" and "we don't know" are different claims.
+- [ ] Not gated on `switch.smart_charging`, plug status, or whether charging is needed.
+- [ ] Tests: window grouping; no re-notify on curve refresh; window extended; window passed; negative-price tier; threshold in øre vs DKK; no price data.
 
 ## Phase 6 — Charger execution
 
@@ -312,8 +347,16 @@ Regression tests live in `tests/test_models.py::TestDaylightSavingArithmetic`.
 
 - [ ] `trip_energy.py` with the base model.
 - [ ] Outputs: trip energy, minimum/recommended departure SoC, fits-in-one-charge, expected arrival SoC, `intermediate_charge_required`.
-- [ ] Long-trip target policy including cap, approval, and restore.
-- [ ] Only set the vehicle target when a writable actuator is configured; otherwise notify.
+- [ ] Capture and persist `normal_target_soc` **before** the first raise is proposed. Without it there is nothing to tell the user to restore to, and a raised target would be mistaken for normal.
+- [ ] Prompt to raise the target to **100%** when a trip needs more than the current target and no writable actuator exists. 100% rather than the exact requirement: consumption estimates carry real error, and partial values are fiddly to set in a vehicle app.
+- [ ] Skip the prompt when the target already meets the requirement.
+- [ ] Set the target directly only when a writable actuator is configured, subject to the approval policy.
+- [ ] Watch the target sensor after prompting: satisfied / not raised in time / raised partially. Never imply the trip is covered merely because a prompt was sent — keep `can_meet_target` and `estimated_soc_at_departure` honest.
+- [ ] `binary_sensor.charge_target_raised`, on while the target exceeds `normal_target_soc`. This carries the state; a notification alone would be missed and a repeated one would nag.
+- [ ] One notification when the trip ends, naming the value to restore ("still 100%, set it back to 90%").
+- [ ] Clear the raised state when the target returns to `normal_target_soc` or below. A different lower value becomes the new normal rather than an error (ADR-003).
+- [ ] Automatic restore only where a writable actuator exists, and only behind a policy setting — silently lowering a deliberately raised target is its own surprise.
+- [ ] Tests: prompt issued / skipped when already high enough; user raises in time; user never raises; user raises partially; restore reminder fires once; state clears on manual restore; user sets a new lower normal.
 
 ### Phase 11 — Booking conflict decisions
 

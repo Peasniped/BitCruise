@@ -95,6 +95,8 @@ An accepted charging plan or accepted car booking must not be silently displaced
 14. Stop or otherwise end the controlled charging session at the approved end time when configured to do so.
 15. Recover safely across Home Assistant restarts.
 16. Be installable from a GitHub custom repository through HACS.
+17. Alert the household when electricity is unusually cheap, independently of whether
+    the car needs charging.
 
 ### Explicit non-goals for V1
 
@@ -601,6 +603,67 @@ Estimated departure SoC: 71%.
 
 Also required: charger action failed at scheduled start; optional charging completion summary.
 
+### Cheap power alert
+
+Tell the household when electricity is unusually cheap, so the dishwasher, dryer or
+anything else can be run then. This is **not about the car**: it fires whether or not
+charging is needed, whether or not the car is plugged in, and it is not gated on the
+smart charging switch. BitCruise already parses the full forward price curve, so the
+information exists and is otherwise wasted.
+
+#### Threshold
+
+A single configurable price threshold, expressed **in the units of the selected price
+entity** — `0.50` for a sensor reporting `DKK/kWh`, but `50` for one reporting øre
+when `use_cent` is set. The configuration UI must show the entity's own unit rather
+than assuming a currency, and the stored value must be reinterpreted if the user later
+selects a price entity with a different unit.
+
+Exposed as a `number` entity so it can be tuned from a dashboard without reopening the
+config flow. A relative threshold ("cheapest 10% of the coming week") is a plausible
+later addition, but the absolute value is what people can reason about.
+
+#### Two tiers
+
+Below the threshold and below zero are qualitatively different and read differently:
+
+```text
+Cheap power: 0.46 DKK/kWh from 10:00 to 17:00.
+```
+
+```text
+Negative prices: -0.12 DKK/kWh from 02:00 to 05:00. You are paid to use power.
+```
+
+#### Notify per window, not per interval
+
+The main risk here is nuisance. A naive implementation notifies once an hour through a
+seven-hour cheap block, then again every time the price curve refreshes.
+
+Rules:
+
+- group contiguous below-threshold intervals into a single **window** and notify once
+  per window;
+- identify a window by its start instant, so a refreshed price curve that reproduces
+  the same window does not re-notify;
+- if a known window's shape changes materially — it starts earlier, or extends — send
+  at most one update, not a fresh alert;
+- notify ahead of the window rather than at its start, with a configurable lead time,
+  since a cheap period is only actionable if there is time to act;
+- never notify about a window that has already passed.
+
+#### Entities
+
+Notifications remain optional, so the same information is available as state:
+
+- `binary_sensor.cheap_power` — on while the current price is below the threshold;
+- `sensor.next_cheap_period` — start of the next cheap window, with end, duration,
+  minimum and mean price as attributes;
+- `number.cheap_price_threshold` — the threshold itself.
+
+Both entities are `unknown` rather than `off` when no price data is available, since
+"no cheap power coming" and "we do not know" are different claims.
+
 ### Architecture rule
 
 Actionable notifications call the same integration actions/buttons as the dashboard. Business logic must never live only inside the notification payload.
@@ -829,7 +892,39 @@ Requirements:
 
 Initial adapter: Energi Data Service/Carnot. It must parse today's actual prices, tomorrow's actual prices, and Carnot forecast intervals; determine when tomorrow's actual prices are valid; merge sources by interval timestamp; mark each interval `ACTUAL` or `FORECAST`; expose plan price quality as actual/forecast/mixed; and detect malformed or insufficient data.
 
-Keep heuristics for attribute names in one module and cover them with fixtures/tests. Do not code from assumptions about attribute names — inspect the real HA entity and freeze sanitized fixtures in tests.
+Keep heuristics for attribute names in one module and cover them with fixtures/tests.
+
+### The user selects an entity, never an attribute
+
+Every other input is chosen with a standard entity picker filtered by domain and
+device class, because for those the entity **state is the value**: a SoC sensor
+reads `42` with unit `%`, and normalization is a unit conversion.
+
+Prices are the one exception, and the reason is worth stating plainly: a price
+sensor's state is only the *current* price — a single number. The planner needs the
+whole forward curve, which exists solely in the entity's attributes, and Home
+Assistant defines no standard schema for it. Energi Data Service, Nordpool, ENTSO-e
+and Tibber each name and shape it differently, and there is no device class for
+"hourly price curve". A picker therefore identifies the entity but cannot describe
+its contents.
+
+That is an implementation problem, not a configuration question. The user must never
+be asked what their attributes are called. Instead:
+
+- adapters encode the attribute conventions of specific integrations, derived from
+  those integrations' published documentation;
+- detection tries each known convention against the selected entity;
+- an entity matching no convention is reported as a clear, actionable error — a
+  misread price curve yields a confident, plausible, wrong schedule, which is worse
+  than refusing to plan;
+- the integration reports what it parsed (source, interval count, actual/forecast
+  mix) so a user can confirm correctness by reading a sensor.
+
+Energi Data Service exposes `raw_today` and `raw_tomorrow` as timestamp/price
+objects, `tomorrow_valid` as a boolean, optional Carnot data under `forecast`, and
+critically a `unit` of `MWh`, `kWh` or `Wh` plus a `currency`. The unit must be
+normalized: assuming kWh when the sensor reports MWh makes every cost wrong by a
+factor of 1000.
 
 ---
 
@@ -1166,17 +1261,72 @@ form has proven useful.
 A custom Lovelace card remains a non-goal (section 2); this data must be usable from
 standard HA cards.
 
-### Setting charge limit to 100%
+### Raising the charge target for a long trip
 
-Treat vehicle target mutation as an optional actuator capability. The integration must never assume every vehicle integration supports setting the charge target.
+Treat vehicle target mutation as an **optional** actuator capability. On the reference
+installation it does not exist: the Volvo integration exposes the target as a
+read-only `sensor`, with no `number` or `select` to write. Other vehicle integrations
+may expose a writable target, so both paths are supported — but the prompt-based path
+is the one that must work, because it is the one that is real today.
 
-Policy sketch:
+#### Remember the normal target first
 
-- if `required_departure_soc > normal_target_soc` and the trip is within a configured horizon (e.g. next day), propose raising the target;
-- cap at vehicle/user maximum (100%);
-- set the vehicle target only if a writable target actuator is configured, otherwise notify the user to change it manually;
-- ask for approval unless the user enables automatic trip preparation;
-- restore the normal target after the trip or after departure, according to policy.
+Before anything is raised, the current target is captured and persisted as
+`normal_target_soc`. Without it there is no way to tell the user what to set the car
+back to, and no way to detect that they already have. This value is recorded when the
+first raise is proposed, not continuously, so that a temporarily raised target is
+never mistaken for the normal one.
+
+#### Prompting
+
+When `required_departure_soc` exceeds the current target and the trip falls within the
+configured horizon:
+
+- if a writable target actuator is configured, set it, subject to the approval policy;
+- otherwise notify the user to raise it manually, and ask for **100%**.
+
+Asking for 100% rather than the exact computed requirement is deliberate. The
+requirement is an estimate carrying real error — consumption varies with temperature,
+speed and load — and a partial value is fiddly to set in a vehicle app. Rounding up
+costs a little battery longevity on one occasion; being 3% short strands the driver.
+A setting may later allow requesting the exact figure instead.
+
+No prompt is issued when the target already meets or exceeds the requirement.
+
+#### Verifying the user acted
+
+The target sensor is watched after prompting. Three outcomes:
+
+- **raised in time** — trip preparation is satisfied, and planning proceeds to the new
+  target;
+- **not raised as departure approaches** — warn again, and make the shortfall explicit
+  through `can_meet_target` and `estimated_soc_at_departure`. The plan must never
+  imply the trip is covered because a prompt was sent;
+- **raised to something between the normal target and the requirement** — treat as
+  partial: plan to what was actually set, and keep the shortfall visible.
+
+#### Restoring afterwards
+
+A raised target left in place quietly degrades the battery over months, and the user
+who raised it is unlikely to remember. Once the trip has ended — the booking's end
+time has passed, or the booking was cancelled — BitCruise:
+
+- exposes `binary_sensor.charge_target_raised`, on for as long as the target remains
+  above `normal_target_soc`;
+- sends one notification naming the value to restore: *"Trip finished. Charge target
+  is still 100%. Set it back to 90%."*
+
+The persistent binary sensor is what carries the state; the notification is a
+convenience. A repeated notification would be nagging, and a notification alone would
+be missed.
+
+The state clears when the target returns to `normal_target_soc` or below. If the user
+sets some other lower value, that becomes the new normal rather than an error — the
+household's intent wins, consistent with ADR-003.
+
+Where a writable actuator exists, automatic restoration is available but must be
+policy-gated rather than assumed, since silently lowering a target the user raised
+deliberately is its own surprise.
 
 Important distinction:
 

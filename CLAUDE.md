@@ -35,6 +35,7 @@ Everything else about the product lives in the documents below. Do not restate s
 | `DESIGN.md` | Product scope, domain model, architecture, ADRs, test matrix | Source of truth for *what* to build. Working document — see below. |
 | `PLAN.md` | Delivery phases, goals, acceptance criteria | Source of truth for *order*. Working document — see below. |
 | `TODO.md` | Actionable implementation backlog | Source of truth for *state of work*. Tick items here, not in PLAN.md. |
+| `docs/reference-installation.md` | Real entity names, units, enums and traps from the development installation | Read before writing code that reads an entity. Evidence, not configuration — never hard-code anything from it. |
 
 `DESIGN.md` and `PLAN.md` are **transitional working documents**. The intent is to
 retire them once the behaviour they describe is implemented and covered by tests, so
