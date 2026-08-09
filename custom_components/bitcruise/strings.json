@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up BitCruise",
+        "description": "BitCruise plans EV charging from entities that already exist in Home Assistant.\n\nThis early version creates the integration only. Vehicle, charger, and electricity price selection are not implemented yet."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported."
+    }
+  }
+}

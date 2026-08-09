@@ -1,0 +1,14 @@
+{
+  "domain": "bitcruise",
+  "name": "BitCruise",
+  "codeowners": ["@BitPusher"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/BitPusher/BitCruise",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/BitPusher/BitCruise/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.0.1"
+}

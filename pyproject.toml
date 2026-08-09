@@ -1,0 +1,56 @@
+[project]
+name = "bitcruise"
+version = "0.0.1"
+description = "Home Assistant custom integration that plans and executes residential EV charging."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+
+# This project is not distributed as a Python package. It is installed as a
+# Home Assistant custom component. The metadata above exists so tooling can
+# read a coherent project definition; do not add runtime dependencies here.
+# Integration runtime requirements belong in custom_components/bitcruise/manifest.json.
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
+    "ruff",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["custom_components", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "ANN",  # flake8-annotations - CLAUDE.md requires new code to be fully typed
+    "D",    # pydocstyle - Home Assistant requires docstrings
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+    "ASYNC",
+    "DTZ",  # flake8-datetimez - DESIGN.md 3.5 forbids naive datetimes
+]
+ignore = [
+    "D203",  # conflicts with D211
+    "D213",  # conflicts with D212
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN201", "D100", "D103"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
