@@ -34,7 +34,7 @@ charger, or electricity provider.
   need coordination that does not exist yet — running two independent planners would
   double-book the charger or exceed the supply limit. If you have two EVs, run
   BitCruise for the one that benefits most from price optimization and charge the
-  other manually. See [DESIGN.md](DESIGN.md) section 18.
+  other manually.
 - A vehicle integration exposing battery state of charge.
 - An electricity price integration exposing hourly or 15-minute prices.
 - A charger exposed through Home Assistant, if you want BitCruise to start and stop
@@ -102,8 +102,6 @@ To test against a real Home Assistant instance, symlink or copy
 
 | File | Contents |
 | --- | --- |
-| [DESIGN.md](DESIGN.md) | Product scope, domain model, architecture, ADRs |
-| [PLAN.md](PLAN.md) | Delivery phases and acceptance criteria |
 | [TODO.md](TODO.md) | Actionable backlog |
 | [CLAUDE.md](CLAUDE.md) | Instructions for AI-assisted development |
 

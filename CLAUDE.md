@@ -15,7 +15,7 @@ Instructions for Claude working in this repository.
 - Always DO ask me if you are ever uncertain about something.
 - DO keep `CLAUDE.md` up to date when making changes that contradict or add to something written in here.
 - When you are done implementing a feature, before committing, DO tell me what to test to assess the implementation, as user steps.
-- DO write git commits at regular intervals when it makes sense.
+- DO write git commits at regular intervals when it makes sense. Keep the messages short — a subject line and a sentence or two of context at most. Don't restate the diff.
 - You must DO show a preview of the commit message in text and get my confirmation **before** calling any git tool.
 
 ## What this project is
@@ -32,9 +32,15 @@ Everything else about the product lives in the documents below. Do not restate s
 | File | Contents | Rule |
 | --- | --- | --- |
 | `CLAUDE.md` | How Claude works in this repo | This file. Keep it about process, not product. |
-| `DESIGN.md` | Product scope, domain model, architecture, ADRs, test matrix | Source of truth for *what* to build. |
-| `PLAN.md` | Delivery phases, goals, acceptance criteria | Source of truth for *order*. |
+| `DESIGN.md` | Product scope, domain model, architecture, ADRs, test matrix | Source of truth for *what* to build. Working document — see below. |
+| `PLAN.md` | Delivery phases, goals, acceptance criteria | Source of truth for *order*. Working document — see below. |
 | `TODO.md` | Actionable implementation backlog | Source of truth for *state of work*. Tick items here, not in PLAN.md. |
+
+`DESIGN.md` and `PLAN.md` are **transitional working documents**. The intent is to
+retire them once the behaviour they describe is implemented and covered by tests, so
+they are deliberately not referenced from `README.md`. Keep using them while they
+exist, but do not expand them beyond what is needed to build the current phase, and
+prefer encoding decisions as tests and docstrings — those survive the documents.
 
 ## Working rules
 
