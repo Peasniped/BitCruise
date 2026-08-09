@@ -79,6 +79,19 @@ class PlanSource(StrEnum):
     SOC_CHANGE = "soc_change"
     SETTINGS_CHANGE = "settings_change"
     MANUAL = "manual"
+    SCHEDULE = "schedule"
+    """The clock moved past a deadline or a price interval; nothing else changed."""
+
+
+class ApprovalPolicy(StrEnum):
+    """How much the user wants to be asked before charging happens.
+
+    Neither value is fully automatic: a materially changed window always waits
+    for an answer, because an approved plan is never silently moved (ADR-003).
+    """
+
+    ALWAYS_ASK = "always_ask"
+    ASK_ON_CHANGE = "ask_on_change"
 
 
 def _require_aware(value: datetime, name: str) -> None:
