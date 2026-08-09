@@ -34,7 +34,7 @@ Everything else about the product lives in the documents below. Do not restate s
 | `CLAUDE.md` | How Claude works in this repo | This file. Keep it about process, not product. |
 | `DESIGN.md` | Product scope, domain model, architecture, ADRs, test matrix | Source of truth for *what* to build. Working document — see below. |
 | `PLAN.md` | Delivery phases, goals, acceptance criteria | Source of truth for *order*. Working document — see below. |
-| `TODO.md` | Actionable implementation backlog | Source of truth for *state of work*. Tick items here, not in PLAN.md. |
+| `TODO.md` | Outstanding work, and nothing else | Source of truth for *what is left*. Delete items as they land; do not accumulate ticked ones. Phase status lives in PLAN.md. |
 | `docs/reference-installation.md` | Real entity names, units, enums and traps from the development installation | Read before writing code that reads an entity. Evidence, not configuration — never hard-code anything from it. |
 
 `DESIGN.md` and `PLAN.md` are **transitional working documents**. The intent is to
@@ -51,7 +51,7 @@ prefer encoding decisions as tests and docstrings — those survive the document
 4. Inspect existing files and tests before coding. Do not overwrite working architecture casually.
 5. Add or update tests with every behavior change. `DESIGN.md` §14 lists the required coverage.
 6. Run the relevant test/lint/validation commands after changes and report the real result.
-7. Update `TODO.md` as work completes. Add newly discovered work there rather than leaving it implicit.
+7. Update `TODO.md` as work completes: **delete** finished items rather than ticking them, so the file only ever lists work that remains. Add newly discovered work there rather than leaving it implicit. If finishing something taught you a rule worth keeping, add it to "Traps this project has already fallen into" above.
 8. If a Home Assistant API is uncertain or may have changed, check the current official developer documentation before implementing. Do not copy patterns from old third-party custom components.
 9. Do not invent service/action schemas for Volvo, Zaptec, Energi Data Service, Fastmail, HACS, or Home Assistant. Verify against real entities/docs, or make the capability user-configurable.
 10. Do not hard-code the user's personal entity IDs, device names, or notification targets.
@@ -97,6 +97,29 @@ prefer encoding decisions as tests and docstrings — those survive the document
 ### Dependency policy
 
 Prefer no third-party Python dependencies for V1. If one becomes necessary: justify it, pin it appropriately in `manifest.json`, and keep vendor/protocol communication in a separate library rather than inside the integration.
+
+## Traps this project has already fallen into
+
+Standing rules, each one paid for. `TODO.md` tracks work, not history, so these live
+here where they are read every session.
+
+- **Route every datetime comparison, duration and ordering through `to_utc` or `elapsed_hours`.** Python does *wall-clock* arithmetic when two aware datetimes share a `tzinfo`, which is wrong twice a year: a spring-forward 01:00→03:00 measures 2 hours when 1 elapses, and the repeated hour on a fall-back day makes two different instants compare equal, breaking sorting and overlap detection. Regression tests: `tests/test_models.py::TestDaylightSavingArithmetic`. The one deliberate exception is `next_occurrence`, where "ready by 07:00" genuinely means the wall clock.
+- **Nothing that is not JSON-serializable may reach an entity state attribute.** Home Assistant serializes states with orjson, which refuses `Decimal`. The entity then never reaches the frontend and shows as `unavailable`, with nothing on it to say why. Currency is `Decimal` throughout, so this is a standing hazard; convert at the presentation boundary. Guard: `tests/ha/test_serialization.py`. Reading attributes in-process, as most tests do, cannot catch it.
+- **Plan ids must be derived from plan content only.** Mixing the calculation time in makes every recomputation look like a new plan, and the approval machine re-asks about a window the user already answered.
+- **`integration_type: service`, not `helper`.** `helper` files the integration under the Helpers tab, whose UI opens an options flow on click, so an integration without one fails with "Invalid handler specified" (home-assistant/frontend#15044). The calculated nature is carried by `iot_class`. Regression test in `tests/test_manifest.py`.
+- **Do not debounce recomputation.** A coordinator-level debouncer was tried and reverted: on a restart every source entity appears in one burst, so it evaluated the first and deferred the rest, leaving the integration reporting "entity not found" for entities that plainly existed. Recomputation is a pure function over `hass.states` and costs nothing. Debouncing belongs at the point a *notification* would be sent.
+- **Energi Data Service already includes tariffs and surcharges.** Never add the `tariffs` attribute to the exposed price — it double-counts and inflates cost by roughly 40%.
+
+## Decisions that are settled
+
+Do not reopen these without a reason; they are load-bearing.
+
+- Licence MIT, copyright Peasniped. Change to a legal name only if distributed formally.
+- Minimum Home Assistant `2026.8.0`; Python 3.14 (HA 2026.3+ requires it).
+- `single_config_entry: true` for V1. Loosening it later is backwards compatible.
+- Currency is `Decimal`; energy, power and SoC stay `float`. Conversion happens only at the price × energy boundary, so repeated cost addition stays exact.
+- Whole price intervals are allocated, with the slack reported as `over_allocation_kwh`. Cost is charged on the energy expected to be drawn, since the car stops at target rather than running the window out.
+- Approval defaults to `ask_on_change`: the first plan of a cycle is approved automatically, every material move still asks. `always_ask` would need a press every evening, and a missed press means no charging.
 
 ## Definition of done
 
