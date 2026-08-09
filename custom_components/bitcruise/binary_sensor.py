@@ -26,8 +26,27 @@ async def async_setup_entry(
             BitCruiseChargeNeeded(coordinator),
             BitCruiseVehicleConnected(coordinator),
             BitCruiseCanMeetTarget(coordinator),
+            BitCruisePlanRequiresApproval(coordinator),
         ]
     )
+
+
+class BitCruisePlanRequiresApproval(BitCruiseEntity, BinarySensorEntity):
+    """Whether a proposed plan is waiting for an answer.
+
+    This carries the state that a notification only announces. A notification
+    can be missed or dismissed; something has to remain true for as long as the
+    question is open, so a dashboard or an automation can act on it.
+    """
+
+    def __init__(self, coordinator: BitCruiseCoordinator) -> None:
+        """Set up the entity."""
+        super().__init__(coordinator, "plan_requires_approval")
+
+    @property
+    def is_on(self) -> bool:
+        """True while a proposal is pending."""
+        return self.coordinator.data.record.requires_approval
 
 
 class BitCruiseCanMeetTarget(BitCruiseEntity, BinarySensorEntity):
@@ -46,7 +65,7 @@ class BitCruiseCanMeetTarget(BitCruiseEntity, BinarySensorEntity):
         Reported as a problem rather than as "can meet target" so it is off in
         the healthy case and draws attention only when the car will fall short.
         """
-        plan = self.coordinator.data.plan
+        plan = self.coordinator.data.effective_plan
         if plan is None:
             return None
         return not plan.can_meet_target

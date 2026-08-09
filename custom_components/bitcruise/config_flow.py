@@ -20,15 +20,20 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TimeSelector,
 )
 
 from .const import (
+    CONF_APPROVAL_POLICY,
     CONF_AVAILABILITY_ENTITY,
     CONF_CAPACITY_ENTITY,
     CONF_CAPACITY_FIXED_KWH,
     CONF_CHARGING_EFFICIENCY,
     CONF_CHARGING_POWER_KW,
+    CONF_MATERIAL_CHANGE_MINUTES,
     CONF_NOT_BEFORE,
     CONF_PLUG_ENTITY,
     CONF_PRICE_ENTITY,
@@ -39,11 +44,13 @@ from .const import (
     CONF_TARGET_FIXED_PCT,
     DEFAULT_CHARGING_EFFICIENCY,
     DEFAULT_CHARGING_POWER_KW,
+    DEFAULT_MATERIAL_CHANGE_MINUTES,
     DEFAULT_READY_BY,
     DEFAULT_RESERVE_FLOOR_PCT,
     DEFAULT_TARGET_PCT,
     DOMAIN,
 )
+from .models import ApprovalPolicy
 
 
 def _percentage(minimum: float = 0, maximum: float = 100) -> NumberSelector:
@@ -140,6 +147,26 @@ def settings_schema(
                 CONF_NOT_BEFORE,
                 description={"suggested_value": defaults.get(CONF_NOT_BEFORE)},
             ): TimeSelector(),
+            vol.Required(
+                CONF_APPROVAL_POLICY,
+                default=defaults.get(
+                    CONF_APPROVAL_POLICY, ApprovalPolicy.ASK_ON_CHANGE.value
+                ),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[policy.value for policy in ApprovalPolicy],
+                    translation_key=CONF_APPROVAL_POLICY,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(
+                CONF_MATERIAL_CHANGE_MINUTES,
+                default=defaults.get(
+                    CONF_MATERIAL_CHANGE_MINUTES, DEFAULT_MATERIAL_CHANGE_MINUTES
+                ),
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=360, step=1, unit_of_measurement="min")
+            ),
         }
     )
     return vol.Schema(fields)

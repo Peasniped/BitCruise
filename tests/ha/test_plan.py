@@ -89,13 +89,15 @@ async def test_plan_picks_the_overnight_trough(hass: HomeAssistant) -> None:
     """
     await _setup(hass)
 
+    # The default policy approves a first plan without asking, so the window
+    # shows up as approved rather than proposed.
     status = hass.states.get("sensor.bitcruise_plan_status")
-    assert status.state == "proposed"
+    assert status.state == "approved"
     assert status.attributes["problems"] == []
     assert status.attributes["price_intervals"] == 72
 
-    start = hass.states.get("sensor.bitcruise_proposed_start").state
-    end = hass.states.get("sensor.bitcruise_proposed_end").state
+    start = hass.states.get("sensor.bitcruise_approved_start").state
+    end = hass.states.get("sensor.bitcruise_approved_end").state
     assert datetime.fromisoformat(start).astimezone(CPH).hour == 2
     assert datetime.fromisoformat(end).astimezone(CPH).hour == 6
 
@@ -145,7 +147,7 @@ async def test_forecast_only_still_produces_a_plan(hass: HomeAssistant) -> None:
     await _setup(hass, price_attributes=attributes)
 
     assert hass.states.get("sensor.bitcruise_price_quality").state == "forecast"
-    assert hass.states.get("sensor.bitcruise_plan_status").state == "proposed"
+    assert hass.states.get("sensor.bitcruise_plan_status").state == "approved"
 
 
 @freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH))

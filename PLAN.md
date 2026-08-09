@@ -16,7 +16,7 @@ The project builds in layers. The first useful release solves charging well befo
 | 1 | Domain model and pure charging planner | Complete |
 | 2 | HA source binding and visible sensors | Code complete; awaiting hardware check |
 | 3 | Energi Data Service + Carnot price adapter | Complete |
-| 4 | Proposal/approval state machine | Not started |
+| 4 | Proposal/approval state machine | Complete |
 | 5 | Notifications | Not started |
 | 6 | Charger execution | Not started |
 | 7 | Restart recovery and robustness | Not started |

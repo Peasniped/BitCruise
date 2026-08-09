@@ -30,7 +30,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [ ] Multi-vehicle config entry model: one entry per vehicle vs. per-vehicle subentries (`DESIGN.md` §18).
 - [ ] Whether the household supply limit belongs in BitCruise or should read an existing HA power sensor.
 - [ ] Whether the final price interval may be partially allocated in V1, or always whole.
-- [ ] Default approval policy for V1: `always_ask` vs `ask_on_change`.
+- [x] Default approval policy for V1: **`ask_on_change`**. `always_ask` would need an Accept press every single evening for the routine plan, and a missed press means no charging. `ask_on_change` approves the first plan of a cycle and still asks about every material move, so ADR-003 holds either way. `always_ask` remains selectable.
 
 ---
 
@@ -273,23 +273,41 @@ unpublished tomorrow prices).
 
 ## Phase 4 — Proposal/approval state machine
 
-- [ ] Persisted state record: current proposal, approved plan, plan IDs/revisions, proposal reason, approval status, execution markers.
-- [ ] `storage.py` using HA storage helpers.
-- [ ] `button.accept_plan`.
-- [ ] `button.reject_plan`.
-- [ ] `button.recalculate_plan`.
-- [ ] `switch.smart_charging`.
-- [ ] Sensors: proposed start/end, approved start/end, estimated cost, plan status.
-- [ ] `binary_sensor.plan_requires_approval`.
-- [ ] Rule: new plan with no approved plan → proposal.
-- [ ] Rule: accept → approved atomically.
-- [ ] Rule: reject → proposal cleared.
-- [ ] Rule: equivalent replan → keep approved plan silently.
-- [ ] Rule: materially changed replan → stage replacement, keep approved plan active.
-- [ ] Rule: accept move → atomic replacement.
-- [ ] Rule: keep old plan → discard replacement.
-- [ ] Configurable "materially changed" threshold, default one price interval.
-- [ ] State machine tests (`DESIGN.md` §14).
+### State machine (`plan_state.py`)
+
+Pure — no Home Assistant import — so the rules run on Windows and are tested
+without entities. Every rule from `DESIGN.md` §7 lives here and nowhere else, so
+a notification action in Phase 5 reuses it rather than reimplementing it.
+
+- [x] Persisted state record: current proposal, approved plan, plan IDs, proposal reason, rejection marker. Execution markers stay open — there is nothing executing until Phase 6.
+- [x] `storage.py` using HA storage helpers. Serialization lives in `plan_state.py` so the round trip is testable without HA; the store is keyed per config entry and deleted with it.
+- [x] Rule: new plan with no approved plan → proposal.
+- [x] Rule: accept → approved atomically.
+- [x] Rule: reject → proposal cleared.
+- [x] Rule: equivalent replan → keep approved plan silently.
+- [x] Rule: materially changed replan → stage replacement, keep approved plan active.
+- [x] Rule: accept move → atomic replacement. The same operation as approving a first plan, so there is no separate path to get wrong.
+- [x] Rule: keep old plan → discard replacement.
+- [x] Configurable "materially changed" threshold, default one price interval (60 min). Strict at the boundary: with hourly prices any real move asks, which is what "one interval" has to mean.
+- [x] Rejection is remembered by plan id, or the identical window would be re-proposed seconds later, forever. Recalculate clears it.
+- [x] Expiry: an approved window whose end has passed is retired, so last night's approval does not look like something tonight's plan must replace.
+- [x] Unusable inputs carry the record forward untouched. A price entity blinking out must not read as "no charging needed" and take a pending proposal with it.
+- [x] State machine tests (`DESIGN.md` §14) — 55 pure tests.
+
+### Entities
+
+- [x] `button.accept_plan`, `button.reject_plan`, `button.recalculate_plan`. Deliberately still available with nothing pending, where they no-op: an unavailable entity would make a Phase 5 notification action fail instead.
+- [x] `switch.smart_charging`. Off means BitCruise decides nothing — nothing proposed, no plan held approved — while the deficit sensors keep reporting. Persisted with the record rather than restored from the entity, so the coordinator knows it before the first evaluation.
+- [x] Sensors: approved start/end added; proposed start/end now mean the pending question only, and report unknown when there is nothing to answer.
+- [x] `sensor.plan_status` reports `awaiting_approval` / `approved`, with the proposal reason, both plan ids and `replaces_approved_plan` as attributes.
+- [x] `binary_sensor.plan_requires_approval`.
+- [x] Approval policy and the material-change threshold in the options flow.
+- [x] 12 Home Assistant tests, including three that fail if the store is not read on setup.
+
+### Found while building this
+
+- [x] **The plan id was a nonce.** `_plan_id` mixed `data.now` into the hash, so every recomputation produced a "new" plan. The rejection marker would never have matched and a turned-down window would have been re-proposed within seconds. Now derived from window and energy only, with a regression test in `TestDeterminism`.
+- [x] Added `PlanSource.SCHEDULE`. Since Phase 3 the clock crossing a boundary is a genuine cause of a replan, and none of the existing reasons described it honestly. `DESIGN.md` §11 lists the reasons as "initial, price_update, soc_change, etc.".
 
 ## Phase 5 — Notifications
 

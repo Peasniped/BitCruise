@@ -51,7 +51,9 @@
           "charging_efficiency": "Charging efficiency",
           "reserve_floor_pct": "Reserve floor (not active yet)",
           "ready_by": "Ready by",
-          "not_before": "Do not charge before"
+          "not_before": "Do not charge before",
+          "approval_policy": "When to ask before charging",
+          "material_change_minutes": "Ask again when the window moves by"
         },
         "data_description": {
           "target_fixed_pct": "Used only when no charge target entity was selected.",
@@ -60,7 +62,9 @@
           "charging_efficiency": "Energy reaching the battery as a share of energy drawn from the grid. Around 90 percent is typical.",
           "reserve_floor_pct": "NOT ACTIVE YET — leave this at 0 unless you are experimenting. Acting on it arrives in a later release; for now it is only recorded.\n\nWhat it will do: the charge target asks 'how full by the deadline?', while the reserve floor asks 'could I just get in and drive, right now?'. Charging at the cheapest hours deliberately leaves the battery low until shortly before your deadline, which is unhelpful if someone needs the car unexpectedly. The floor is the level you never want to sit below — drop under it and BitCruise will charge straight away instead of waiting for cheap power.\n\nIt must be lower than the charge target, because it is a minimum rather than a second target. Something like 30 to 40 percent is typical.",
           "ready_by": "The time the vehicle should be charged by.",
-          "not_before": "Optional. Prevents charging being scheduled earlier than this time."
+          "not_before": "Optional. Prevents charging being scheduled earlier than this time.",
+          "approval_policy": "'Only when the plan changes' approves the first plan for a night by itself and asks only when prices move the window. 'Every time' means nothing charges until you press Accept.",
+          "material_change_minutes": "How far an already approved window has to move before you are asked again. One price interval (60 minutes) means any real move asks; a larger value tolerates small shifts silently."
         }
       }
     },
@@ -87,10 +91,14 @@
           "charging_efficiency": "Charging efficiency",
           "reserve_floor_pct": "Reserve floor (not active yet)",
           "ready_by": "Ready by",
-          "not_before": "Do not charge before"
+          "not_before": "Do not charge before",
+          "approval_policy": "When to ask before charging",
+          "material_change_minutes": "Ask again when the window moves by"
         },
         "data_description": {
-          "reserve_floor_pct": "NOT ACTIVE YET — leave at 0 unless experimenting. The level you never want the car to sit below, so it is always drivable at short notice. Must be lower than the charge target."
+          "reserve_floor_pct": "NOT ACTIVE YET — leave at 0 unless experimenting. The level you never want the car to sit below, so it is always drivable at short notice. Must be lower than the charge target.",
+          "approval_policy": "'Only when the plan changes' approves the first plan for a night by itself and asks only when prices move the window. 'Every time' means nothing charges until you press Accept.",
+          "material_change_minutes": "How far an already approved window has to move before you are asked again. One price interval (60 minutes) means any real move asks; a larger value tolerates small shifts silently."
         }
       }
     },
@@ -103,16 +111,36 @@
   },
   "entity": {
     "sensor": {
-      "charging_deficit": { "name": "Charging deficit" },
-      "battery_energy_deficit": { "name": "Battery energy deficit" },
-      "grid_energy_required": { "name": "Grid energy required" },
-      "required_charge_duration": { "name": "Required charge duration" },
-      "reserve_floor_deficit": { "name": "Reserve floor deficit" },
-      "proposed_start": { "name": "Proposed start" },
-      "proposed_end": { "name": "Proposed end" },
-      "estimated_cost": { "name": "Estimated cost" },
-      "estimated_soc_at_ready": { "name": "Estimated SoC at ready" },
-      "ready_by": { "name": "Ready by" },
+      "charging_deficit": {
+        "name": "Charging deficit"
+      },
+      "battery_energy_deficit": {
+        "name": "Battery energy deficit"
+      },
+      "grid_energy_required": {
+        "name": "Grid energy required"
+      },
+      "required_charge_duration": {
+        "name": "Required charge duration"
+      },
+      "reserve_floor_deficit": {
+        "name": "Reserve floor deficit"
+      },
+      "proposed_start": {
+        "name": "Proposed start"
+      },
+      "proposed_end": {
+        "name": "Proposed end"
+      },
+      "estimated_cost": {
+        "name": "Estimated cost"
+      },
+      "estimated_soc_at_ready": {
+        "name": "Estimated SoC at ready"
+      },
+      "ready_by": {
+        "name": "Ready by"
+      },
       "price_quality": {
         "name": "Price quality",
         "state": {
@@ -136,12 +164,51 @@
           "cancelled": "Cancelled",
           "error": "Error"
         }
+      },
+      "approved_start": {
+        "name": "Approved start"
+      },
+      "approved_end": {
+        "name": "Approved end"
       }
     },
     "binary_sensor": {
-      "charge_needed": { "name": "Charge needed" },
-      "vehicle_connected": { "name": "Vehicle connected" },
-      "target_unreachable": { "name": "Charge shortfall" }
+      "charge_needed": {
+        "name": "Charge needed"
+      },
+      "vehicle_connected": {
+        "name": "Vehicle connected"
+      },
+      "target_unreachable": {
+        "name": "Charge shortfall"
+      },
+      "plan_requires_approval": {
+        "name": "Plan requires approval"
+      }
+    },
+    "button": {
+      "accept_plan": {
+        "name": "Accept plan"
+      },
+      "reject_plan": {
+        "name": "Reject plan"
+      },
+      "recalculate_plan": {
+        "name": "Recalculate plan"
+      }
+    },
+    "switch": {
+      "smart_charging": {
+        "name": "Smart charging"
+      }
+    }
+  },
+  "selector": {
+    "approval_policy": {
+      "options": {
+        "ask_on_change": "Only when the plan changes",
+        "always_ask": "Every time, before any charging"
+      }
     }
   }
 }

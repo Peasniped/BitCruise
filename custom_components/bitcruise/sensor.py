@@ -40,33 +40,36 @@ def _requirement_value(data: BitCruiseData, attribute: str) -> float | None:
     return getattr(data.requirement, attribute)
 
 
-def _plan_status(data: BitCruiseData) -> str:
-    """Summarise the current state.
-
-    ERROR means a required input is missing, which is deliberately distinct from
-    "no charge needed": the first is a configuration or availability problem, the
-    second is a healthy outcome. PROPOSED means a window has been worked out but
-    nothing has been approved or executed; approval arrives in a later release.
-    """
-    if data.requirement is None:
-        return PlanStatus.ERROR
-    if not data.requirement.is_charge_needed:
-        return PlanStatus.IDLE
-    if data.plan is not None and data.plan.has_window:
-        return PlanStatus.PROPOSED
-    return PlanStatus.NEEDS_CHARGE
-
-
 def _plan_value(data: BitCruiseData, attribute: str) -> SensorValue:
-    """Read a field off the plan, or None when there isn't one."""
-    if data.plan is None:
+    """Read a field off the effective plan, or None when there isn't one."""
+    plan = data.effective_plan
+    if plan is None:
         return None
-    return getattr(data.plan, attribute)
+    return getattr(plan, attribute)
+
+
+def _proposal_value(data: BitCruiseData, attribute: str) -> SensorValue:
+    """Read a field off the pending proposal only.
+
+    Stays unknown when nothing is pending. "Proposed" is a question being asked,
+    not a synonym for "planned" — falling back to the approved window here would
+    make it impossible to tell whether an answer is wanted.
+    """
+    if data.record.proposal is None:
+        return None
+    return getattr(data.record.proposal, attribute)
+
+
+def _approved_value(data: BitCruiseData, attribute: str) -> SensorValue:
+    """Read a field off the approved plan, or None when none is approved."""
+    if data.record.approved is None:
+        return None
+    return getattr(data.record.approved, attribute)
 
 
 def _window_mean_price(data: BitCruiseData) -> Decimal | None:
     """Average price per kWh actually paid across the planned window."""
-    plan = data.plan
+    plan = data.effective_plan
     if plan is None or plan.estimated_cost is None or plan.planned_grid_kwh <= 0:
         return None
     return plan.estimated_cost / Decimal(str(plan.planned_grid_kwh))
@@ -120,19 +123,31 @@ SENSORS: tuple[BitCruiseSensorDescription, ...] = (
         translation_key="plan_status",
         device_class=SensorDeviceClass.ENUM,
         options=[status.value for status in PlanStatus],
-        value_fn=_plan_status,
+        value_fn=lambda data: data.status,
     ),
     BitCruiseSensorDescription(
         key="proposed_start",
         translation_key="proposed_start",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: _plan_value(data, "start"),
+        value_fn=lambda data: _proposal_value(data, "start"),
     ),
     BitCruiseSensorDescription(
         key="proposed_end",
         translation_key="proposed_end",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: _plan_value(data, "end"),
+        value_fn=lambda data: _proposal_value(data, "end"),
+    ),
+    BitCruiseSensorDescription(
+        key="approved_start",
+        translation_key="approved_start",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: _approved_value(data, "start"),
+    ),
+    BitCruiseSensorDescription(
+        key="approved_end",
+        translation_key="approved_end",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data: _approved_value(data, "end"),
     ),
     BitCruiseSensorDescription(
         key="estimated_cost",
@@ -217,8 +232,9 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
         if self.entity_description.key != "plan_status":
             return None
         data = self.coordinator.data
-        plan = data.plan
+        plan = data.effective_plan
         prices = data.price_data
+        record = data.record
         horizon_quality = prices.quality if prices else None
         return {
             "problems": list(data.problems),
@@ -235,7 +251,15 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             "price_source": prices.source if prices else None,
             "price_horizon_quality": horizon_quality.value if horizon_quality else None,
             "price_tomorrow_valid": prices.tomorrow_valid if prices else None,
+            # Which plan is being described, and whether an answer is wanted.
             "plan_id": plan.id if plan else None,
+            "approved_plan_id": record.approved.id if record.approved else None,
+            "proposed_plan_id": record.proposal.id if record.proposal else None,
+            "proposal_reason": (
+                record.proposal_reason.value if record.proposal_reason else None
+            ),
+            "replaces_approved_plan": record.is_replacement,
+            "smart_charging": data.smart_charging,
             "can_meet_target": plan.can_meet_target if plan else None,
             "shortfall_kwh": plan.shortfall_kwh if plan else None,
             "over_allocation_kwh": plan.over_allocation_kwh if plan else None,

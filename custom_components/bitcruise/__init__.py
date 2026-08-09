@@ -12,12 +12,18 @@ from homeassistant.core import HomeAssistant
 
 from .coordinator import BitCruiseConfigEntry, BitCruiseCoordinator
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> bool:
     """Set up BitCruise from a config entry."""
     coordinator = BitCruiseCoordinator(hass, entry)
+    await coordinator.async_load_stored_state()
     await coordinator.async_config_entry_first_refresh()
     await coordinator.async_setup_listeners()
 
@@ -30,6 +36,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) ->
 async def async_unload_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> None:
+    """Delete the persisted approval record along with the entry."""
+    await BitCruiseCoordinator(hass, entry).async_remove_stored_state()
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> None:

@@ -25,6 +25,10 @@ CONF_NOT_BEFORE: Final = "not_before"
 # Prices.
 CONF_PRICE_ENTITY: Final = "price_entity"
 
+# Approval.
+CONF_APPROVAL_POLICY: Final = "approval_policy"
+CONF_MATERIAL_CHANGE_MINUTES: Final = "material_change_minutes"
+
 # Defaults. Charging power reflects a 16 A three-phase supply; see
 # docs/reference-installation.md. It is configurable because chargers differ.
 DEFAULT_CHARGING_POWER_KW: Final = 11.0
@@ -38,3 +42,11 @@ DEFAULT_READY_BY: Final = "07:00:00"
 # responsive; anything arriving during the cooldown is coalesced into one
 # follow-up recomputation rather than replanning per event (DESIGN.md 6).
 REPLAN_DEBOUNCE_SECONDS: Final = 5.0
+
+# One price interval. A window that moves by less than this has shifted within a
+# slot rather than to a different one, which is not worth asking about.
+DEFAULT_MATERIAL_CHANGE_MINUTES: Final = 60
+
+# Storage. The key is suffixed with the config entry id, so a future multi-entry
+# installation does not have two planners writing the same file.
+STORAGE_VERSION: Final = 1
