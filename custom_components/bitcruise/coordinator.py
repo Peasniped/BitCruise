@@ -223,6 +223,20 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         requirement: ChargeRequirement | None = None
         if soc is not None and target is not None and capacity is not None:
             not_before_time = parse_time_option(options.get(CONF_NOT_BEFORE))
+            floor = float(
+                options.get(CONF_RESERVE_FLOOR_PCT, DEFAULT_RESERVE_FLOOR_PCT)
+            )
+            if floor > target:
+                # Clamp rather than refuse. The floor is an optional extra that
+                # does not affect how much energy the target needs, so letting a
+                # bad floor blank the deficit figures would withhold correct
+                # information over an unrelated setting. The problem is still
+                # surfaced; it is not silently reordered. See DESIGN.md 5.
+                problems.append(
+                    f"reserve floor ({floor:g}%) exceeds charge target "
+                    f"({target:g}%) and has been ignored"
+                )
+                floor = 0.0
             try:
                 planning_input = PlanningInput(
                     now=now,
@@ -239,9 +253,7 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
                         )
                     )
                     / 100.0,
-                    reserve_floor_pct=float(
-                        options.get(CONF_RESERVE_FLOOR_PCT, DEFAULT_RESERVE_FLOOR_PCT)
-                    ),
+                    reserve_floor_pct=floor,
                     not_before=(
                         next_occurrence(now, not_before_time)
                         if not_before_time

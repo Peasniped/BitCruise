@@ -11,7 +11,8 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.core import callback
+from homeassistant.const import PERCENTAGE
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -126,13 +127,16 @@ def settings_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 def validate_settings(
-    sources: dict[str, Any], settings: dict[str, Any]
+    sources: dict[str, Any],
+    settings: dict[str, Any],
+    current_target: float | None = None,
 ) -> dict[str, str]:
     """Return field errors for a settings submission.
 
     The floor may not exceed the target: the floor is a lower bound on being able
-    to drive at all, not a second target. Silently reordering them would produce
-    a plan the user did not ask for.
+    to drive at all, not a second target. ``current_target`` is the value read
+    from a selected target entity, so the clash can be caught during setup rather
+    than only appearing as a problem once the entity is running.
     """
     errors: dict[str, str] = {}
 
@@ -146,11 +150,44 @@ def validate_settings(
     if not has_capacity_entity and capacity <= 0:
         errors[CONF_CAPACITY_FIXED_KWH] = "capacity_required"
 
+    effective_target = current_target if has_target_entity else target
     floor = settings.get(CONF_RESERVE_FLOOR_PCT, 0)
-    if not has_target_entity and target is not None and floor > target:
+    if effective_target is not None and floor > effective_target:
         errors[CONF_RESERVE_FLOOR_PCT] = "floor_above_target"
 
     return errors
+
+
+def validate_sources(hass: HomeAssistant, sources: dict[str, Any]) -> dict[str, str]:
+    """Return field errors for the selected source entities.
+
+    Catches the charge target being confused with a charging *current* limit.
+    Vehicle integrations expose both as plain numbers, and picking the wrong one
+    produces a target of "32" that looks entirely reasonable.
+    """
+    errors: dict[str, str] = {}
+
+    if entity_id := sources.get(CONF_TARGET_ENTITY):
+        state = hass.states.get(entity_id)
+        unit = state.attributes.get("unit_of_measurement") if state else None
+        if unit is not None and unit != PERCENTAGE:
+            errors[CONF_TARGET_ENTITY] = "target_not_a_percentage"
+
+    return errors
+
+
+def read_target_entity(hass: HomeAssistant, sources: dict[str, Any]) -> float | None:
+    """Read the current value of a selected target entity, if it is readable."""
+    entity_id = sources.get(CONF_TARGET_ENTITY)
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    try:
+        return float(state.state)
+    except (TypeError, ValueError):
+        return None
 
 
 class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -169,6 +206,11 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=SOURCES_SCHEMA)
 
+        if errors := validate_sources(self.hass, user_input):
+            return self.async_show_form(
+                step_id="user", data_schema=SOURCES_SCHEMA, errors=errors
+            )
+
         self._sources = user_input
         return await self.async_step_settings()
 
@@ -181,7 +223,9 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
                 step_id="settings", data_schema=settings_schema({})
             )
 
-        errors = validate_settings(self._sources, user_input)
+        errors = validate_settings(
+            self._sources, user_input, read_target_entity(self.hass, self._sources)
+        )
         if errors:
             return self.async_show_form(
                 step_id="settings",
@@ -214,7 +258,10 @@ class BitCruiseOptionsFlow(OptionsFlow):
                 step_id="init", data_schema=settings_schema(current)
             )
 
-        errors = validate_settings(dict(self.config_entry.data), user_input)
+        sources = dict(self.config_entry.data)
+        errors = validate_settings(
+            sources, user_input, read_target_entity(self.hass, sources)
+        )
         if errors:
             return self.async_show_form(
                 step_id="init",

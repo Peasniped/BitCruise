@@ -110,6 +110,44 @@ async def test_target_entity_removes_the_fixed_requirement(
     assert result["data"][CONF_TARGET_ENTITY] == TARGET_ENTITY
 
 
+async def test_target_measured_in_amps_is_rejected(hass: HomeAssistant) -> None:
+    """A charging current limit is not a charge target.
+
+    Vehicle integrations expose both as plain numbers. Picking the current limit
+    yields a target of 32 that looks entirely reasonable until nothing charges.
+    """
+    hass.states.async_set(
+        "sensor.car_charging_limit", "32", {"unit_of_measurement": "A"}
+    )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {**SOURCES, CONF_TARGET_ENTITY: "sensor.car_charging_limit"},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {CONF_TARGET_ENTITY: "target_not_a_percentage"}
+
+
+async def test_floor_checked_against_target_entity(hass: HomeAssistant) -> None:
+    """The floor clash must be caught even when the target comes from an entity."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**SOURCES, CONF_TARGET_ENTITY: TARGET_ENTITY}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**SETTINGS, CONF_RESERVE_FLOOR_PCT: 95}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_RESERVE_FLOOR_PCT: "floor_above_target"}
+
+
 async def test_single_instance_only(hass: HomeAssistant) -> None:
     """A second config entry is rejected because the integration is single-instance."""
     MockConfigEntry(domain=DOMAIN, data=SOURCES, options=SETTINGS).add_to_hass(hass)

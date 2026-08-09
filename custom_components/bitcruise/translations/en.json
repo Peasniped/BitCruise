@@ -14,7 +14,7 @@
         },
         "data_description": {
           "soc_entity": "The vehicle's current state of charge, in percent.",
-          "target_entity": "Optional. The vehicle's charge target, in percent. Leave empty to set a fixed target on the next page. Do not pick a sensor measured in amps: that is a current limit, not a charge target.",
+          "target_entity": "Optional. How full the car should be charged, in percent. Leave empty to set a fixed target on the next page.\n\nMake sure this is a percentage. Cars often also expose a 'charging limit' measured in amps, which controls how fast it charges, not how full it gets. A target of 16 or 32 is a sign you have picked that one by mistake.",
           "capacity_entity": "Optional. Usable battery capacity in kWh or Wh. Leave empty to enter it on the next page.",
           "plug_entity": "Optional. Either a binary sensor, or a sensor reporting connected or disconnected.",
           "availability_entity": "Optional, but recommended. Reports whether the vehicle is reachable. Used to detect readings that may be out of date, so charging is never planned from a stale battery level.",
@@ -29,7 +29,7 @@
           "capacity_fixed_kwh": "Battery capacity",
           "charging_power_kw": "Charging power",
           "charging_efficiency": "Charging efficiency",
-          "reserve_floor_pct": "Reserve floor",
+          "reserve_floor_pct": "Reserve floor (not active yet)",
           "ready_by": "Ready by",
           "not_before": "Do not charge before"
         },
@@ -38,7 +38,7 @@
           "capacity_fixed_kwh": "Used only when no capacity entity was selected.",
           "charging_power_kw": "Roughly 11 kW for a 16 A three-phase supply, or 7.4 kW for 32 A single phase.",
           "charging_efficiency": "Energy reaching the battery as a share of energy drawn from the grid. Around 90 percent is typical.",
-          "reserve_floor_pct": "The level below which the car is not reasonably drivable. Separate from the charge target: the target answers whether the car is ready by the deadline, the floor answers whether you could drive right now. Leave at 0 to disable.",
+          "reserve_floor_pct": "NOT ACTIVE YET — leave this at 0 unless you are experimenting. Acting on it arrives in a later release; for now it is only recorded.\n\nWhat it will do: the charge target asks 'how full by the deadline?', while the reserve floor asks 'could I just get in and drive, right now?'. Charging at the cheapest hours deliberately leaves the battery low until shortly before your deadline, which is unhelpful if someone needs the car unexpectedly. The floor is the level you never want to sit below — drop under it and BitCruise will charge straight away instead of waiting for cheap power.\n\nIt must be lower than the charge target, because it is a minimum rather than a second target. Something like 30 to 40 percent is typical.",
           "ready_by": "The time the vehicle should be charged by.",
           "not_before": "Optional. Prevents charging being scheduled earlier than this time."
         }
@@ -47,7 +47,8 @@
     "error": {
       "target_required": "Select a charge target entity, or set a fixed target.",
       "capacity_required": "Select a battery capacity entity, or enter the capacity.",
-      "floor_above_target": "The reserve floor cannot be higher than the charge target."
+      "floor_above_target": "The reserve floor must be lower than the charge target. It is the level you never want to drop below, not a second target. Set it to 0 if you do not want to use it.",
+      "target_not_a_percentage": "That entity is not measured in percent. A 'charging limit' in amps controls how fast the car charges, not how full it gets. Pick the entity that reports the charge target as a percentage, or leave this empty and set a fixed target on the next page."
     },
     "abort": {
       "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported."
@@ -63,16 +64,20 @@
           "capacity_fixed_kwh": "Battery capacity",
           "charging_power_kw": "Charging power",
           "charging_efficiency": "Charging efficiency",
-          "reserve_floor_pct": "Reserve floor",
+          "reserve_floor_pct": "Reserve floor (not active yet)",
           "ready_by": "Ready by",
           "not_before": "Do not charge before"
+        },
+        "data_description": {
+          "reserve_floor_pct": "NOT ACTIVE YET — leave at 0 unless experimenting. The level you never want the car to sit below, so it is always drivable at short notice. Must be lower than the charge target."
         }
       }
     },
     "error": {
       "target_required": "Select a charge target entity, or set a fixed target.",
       "capacity_required": "Select a battery capacity entity, or enter the capacity.",
-      "floor_above_target": "The reserve floor cannot be higher than the charge target."
+      "floor_above_target": "The reserve floor must be lower than the charge target. It is the level you never want to drop below, not a second target. Set it to 0 if you do not want to use it.",
+      "target_not_a_percentage": "That entity is not measured in percent. A 'charging limit' in amps controls how fast the car charges, not how full it gets. Pick the entity that reports the charge target as a percentage, or leave this empty and set a fixed target on the next page."
     }
   },
   "entity": {

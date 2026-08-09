@@ -168,50 +168,65 @@ that reads an entity. Highlights that change the plan:
 
 ### Config flow
 
-- [ ] Vehicle: battery SoC entity.
-- [ ] Vehicle: target SoC entity **or** fixed target percentage.
-- [ ] Vehicle: usable capacity entity **or** fixed kWh.
-- [ ] Vehicle: connected entity. Must accept an **enum `sensor`** as well as a `binary_sensor` — the Volvo integration exposes `charging_connection_status` with options `connected` / `disconnected` / `fault`. Treat `fault` as "not connected, and say so" rather than folding it into disconnected.
-- [ ] Vehicle: optional charging-state entity.
-- [ ] Vehicle: reserve floor percentage, validated against the target. Default `0` (disabled).
-- [ ] Charging: fixed charging power, default 10 kW.
-- [ ] Charging: efficiency, default ~90%.
-- [ ] Charging: ready-by time.
-- [ ] Charging: optional not-before time.
-- [ ] Prices: electricity price entity.
-- [ ] Prices: adapter selection (`auto` / Energi Data Service).
-- [ ] Options/reconfigure flow for the adjustable settings.
-- [ ] Store bindings in `ConfigEntry.data`, behavior in `ConfigEntry.options`.
-- [ ] Typed `ConfigEntry.runtime_data`.
+- [x] Vehicle: battery SoC entity. The only picker filtered on `device_class`, because it is the only one where it is reliably set.
+- [x] Vehicle: target SoC entity **or** fixed target percentage.
+- [x] Vehicle: usable capacity entity **or** fixed kWh.
+- [x] Vehicle: connected entity, accepting an enum `sensor` as well as a `binary_sensor`. `fault` reports `unknown` rather than `off`, so a charging fault is not hidden as "not plugged in".
+- [x] Vehicle: availability entity for the staleness gate.
+- [x] Vehicle: reserve floor percentage, validated against the target.
+- [x] Charging: fixed charging power, default 11 kW (16 A three-phase).
+- [x] Charging: efficiency, default 90%.
+- [x] Charging: ready-by time.
+- [x] Charging: optional not-before time.
+- [x] Prices: electricity price entity, filtered on `device_class: monetary`. Not yet read — Phase 3.
+- [ ] Prices: adapter selection (`auto` / Energi Data Service) — Phase 3, when there is more than one adapter to choose between.
+- [x] Options flow for the adjustable settings; the entry reloads so changes apply immediately.
+- [x] Store bindings in `ConfigEntry.data`, behavior in `ConfigEntry.options`.
+- [x] Typed `ConfigEntry.runtime_data` via `BitCruiseConfigEntry`.
+- [ ] Reconfigure flow for changing the source entities without deleting the entry.
 
 ### Normalization (`source_normalization.py`)
 
-- [ ] Track selected entity state changes (event-driven, no vendor polling).
-- [ ] Normalize SoC to 0..100.
-- [ ] Normalize target SoC.
-- [ ] Normalize capacity (Wh → kWh).
-- [ ] Normalize power (W → kW).
-- [ ] Normalize connection status via configured mapping.
-- [ ] Handle `unknown` / `unavailable` explicitly.
+The module is pure — no Home Assistant import — so it runs on Windows. The coordinator
+reads `hass.states` and passes raw values in.
+
+- [x] Track selected entity state changes (event-driven, no polling at all).
+- [x] Normalize SoC and target to 0..100, rejecting out-of-range values.
+- [x] Normalize capacity (Wh / kWh / MWh → kWh). An absent or unknown unit is refused rather than assumed.
+- [x] Normalize power (W / kW / MW → kW).
+- [x] Normalize connection status, including the enum-sensor form and `fault`.
+- [x] Staleness gate from the availability entity (`no_internet`, `power_saving_mode`, `ota_installation_in_progress`).
+- [x] Handle `unknown` / `unavailable` explicitly, naming the offending entity in the problem.
 
 ### Entities
 
-- [ ] `sensor.charging_deficit` (%).
-- [ ] `sensor.battery_energy_deficit` (kWh).
-- [ ] `sensor.grid_energy_required` (kWh).
-- [ ] `sensor.required_charge_duration`.
-- [ ] `binary_sensor.charge_needed`.
-- [ ] `sensor.plan_status`.
-- [ ] One logical device per planner instance.
+- [x] `sensor.charging_deficit` (%).
+- [x] `sensor.battery_energy_deficit` (kWh).
+- [x] `sensor.grid_energy_required` (kWh).
+- [x] `sensor.required_charge_duration` (hours).
+- [x] `sensor.reserve_floor_deficit` (kWh, diagnostic, disabled by default).
+- [x] `sensor.plan_status`, carrying the diagnosis — problems, plug status, freshness, resolved inputs, ready-by — as attributes.
+- [x] `binary_sensor.charge_needed`.
+- [x] `binary_sensor.vehicle_connected`.
+- [x] One logical device per planner instance, `entry_type: service`, not claiming the vehicle or charger devices.
 
 ### Tests
 
-- [ ] Config flow: successful setup.
-- [ ] Config flow: invalid selections.
-- [ ] Config flow: duplicate setup policy.
-- [ ] Config flow: options change and reconfigure.
-- [ ] Config flow: unload.
-- [ ] Normalization unit conversions and unavailable states.
+38 tests for this phase: 23 pure normalization, 15 requiring Home Assistant.
+
+- [x] Config flow: successful two-step setup.
+- [x] Config flow: capacity required without an entity; floor above target rejected.
+- [x] Config flow: a selected target entity removes the fixed-target requirement.
+- [x] Config flow: duplicate setup policy.
+- [x] Config flow: options change.
+- [x] Config flow: unload.
+- [x] Normalization unit conversions and unavailable states.
+- [x] Entities: deficit figures against the real reference numbers.
+- [x] Entities: recomputation on a source state change.
+- [x] Entities: unavailable source reports `error` and names the entity.
+- [x] Entities: stale vehicle data flagged.
+- [x] Entities: plug `fault` reports `unknown`, not `off`.
+- [ ] Config flow: reconfigure — pending the reconfigure flow itself.
 
 ## Phase 3 — Energi Data Service + Carnot price adapter
 

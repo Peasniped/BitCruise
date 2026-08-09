@@ -154,6 +154,31 @@ async def test_plug_fault_is_not_reported_as_disconnected(
     )
 
 
+async def test_bad_reserve_floor_does_not_blank_the_deficit(
+    hass: HomeAssistant,
+) -> None:
+    """An invalid floor is reported, but must not withhold correct figures.
+
+    The floor does not affect how much energy the target needs, so letting it
+    blank every sensor would hide good information over an unrelated setting.
+    """
+    _set_sources(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=SOURCES,
+        options={**SETTINGS, CONF_RESERVE_FLOOR_PCT: 95},
+        title="BitCruise",
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert float(hass.states.get("sensor.bitcruise_charging_deficit").state) == 43.0
+    status = hass.states.get("sensor.bitcruise_plan_status")
+    assert status.state == "needs_charge"
+    assert any("reserve floor" in problem for problem in status.attributes["problems"])
+
+
 async def test_plug_connected(hass: HomeAssistant) -> None:
     """A connected cable reads as on."""
     _set_sources(hass, plug="connected")
