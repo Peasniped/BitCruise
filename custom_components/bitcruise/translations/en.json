@@ -2,12 +2,106 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up BitCruise",
-        "description": "BitCruise plans EV charging from entities that already exist in Home Assistant.\n\nThis early version creates the integration only. Vehicle, charger, and electricity price selection are not implemented yet."
+        "title": "Select your vehicle and price entities",
+        "description": "BitCruise reads entities that already exist in Home Assistant. Nothing here is vendor specific.",
+        "data": {
+          "soc_entity": "Battery level",
+          "target_entity": "Charge target",
+          "capacity_entity": "Battery capacity",
+          "plug_entity": "Charging cable connected",
+          "availability_entity": "Vehicle availability",
+          "price_entity": "Electricity price"
+        },
+        "data_description": {
+          "soc_entity": "The vehicle's current state of charge, in percent.",
+          "target_entity": "Optional. The vehicle's charge target, in percent. Leave empty to set a fixed target on the next page. Do not pick a sensor measured in amps: that is a current limit, not a charge target.",
+          "capacity_entity": "Optional. Usable battery capacity in kWh or Wh. Leave empty to enter it on the next page.",
+          "plug_entity": "Optional. Either a binary sensor, or a sensor reporting connected or disconnected.",
+          "availability_entity": "Optional, but recommended. Reports whether the vehicle is reachable. Used to detect readings that may be out of date, so charging is never planned from a stale battery level.",
+          "price_entity": "Optional for now. Used from the next release onward to find the cheapest charging window."
+        }
+      },
+      "settings": {
+        "title": "Charging settings",
+        "description": "Values used to work out how much energy is needed and how long it will take.",
+        "data": {
+          "target_fixed_pct": "Fixed charge target",
+          "capacity_fixed_kwh": "Battery capacity",
+          "charging_power_kw": "Charging power",
+          "charging_efficiency": "Charging efficiency",
+          "reserve_floor_pct": "Reserve floor",
+          "ready_by": "Ready by",
+          "not_before": "Do not charge before"
+        },
+        "data_description": {
+          "target_fixed_pct": "Used only when no charge target entity was selected.",
+          "capacity_fixed_kwh": "Used only when no capacity entity was selected.",
+          "charging_power_kw": "Roughly 11 kW for a 16 A three-phase supply, or 7.4 kW for 32 A single phase.",
+          "charging_efficiency": "Energy reaching the battery as a share of energy drawn from the grid. Around 90 percent is typical.",
+          "reserve_floor_pct": "The level below which the car is not reasonably drivable. Separate from the charge target: the target answers whether the car is ready by the deadline, the floor answers whether you could drive right now. Leave at 0 to disable.",
+          "ready_by": "The time the vehicle should be charged by.",
+          "not_before": "Optional. Prevents charging being scheduled earlier than this time."
+        }
       }
+    },
+    "error": {
+      "target_required": "Select a charge target entity, or set a fixed target.",
+      "capacity_required": "Select a battery capacity entity, or enter the capacity.",
+      "floor_above_target": "The reserve floor cannot be higher than the charge target."
     },
     "abort": {
       "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Charging settings",
+        "description": "Values used to work out how much energy is needed and how long it will take.",
+        "data": {
+          "target_fixed_pct": "Fixed charge target",
+          "capacity_fixed_kwh": "Battery capacity",
+          "charging_power_kw": "Charging power",
+          "charging_efficiency": "Charging efficiency",
+          "reserve_floor_pct": "Reserve floor",
+          "ready_by": "Ready by",
+          "not_before": "Do not charge before"
+        }
+      }
+    },
+    "error": {
+      "target_required": "Select a charge target entity, or set a fixed target.",
+      "capacity_required": "Select a battery capacity entity, or enter the capacity.",
+      "floor_above_target": "The reserve floor cannot be higher than the charge target."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "charging_deficit": { "name": "Charging deficit" },
+      "battery_energy_deficit": { "name": "Battery energy deficit" },
+      "grid_energy_required": { "name": "Grid energy required" },
+      "required_charge_duration": { "name": "Required charge duration" },
+      "reserve_floor_deficit": { "name": "Reserve floor deficit" },
+      "plan_status": {
+        "name": "Plan status",
+        "state": {
+          "idle": "Idle",
+          "needs_charge": "Needs charge",
+          "proposed": "Proposed",
+          "awaiting_approval": "Awaiting approval",
+          "approved": "Approved",
+          "waiting_for_car": "Waiting for car",
+          "ready": "Ready",
+          "charging": "Charging",
+          "completed": "Completed",
+          "cancelled": "Cancelled",
+          "error": "Error"
+        }
+      }
+    },
+    "binary_sensor": {
+      "charge_needed": { "name": "Charge needed" },
+      "vehicle_connected": { "name": "Vehicle connected" }
     }
   }
 }

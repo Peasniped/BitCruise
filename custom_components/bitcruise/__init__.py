@@ -1,29 +1,37 @@
 """The BitCruise integration.
 
 BitCruise plans and executes residential EV charging from entities that already
-exist in Home Assistant. This module is currently a config-entry skeleton: it
-sets up and unloads an entry and forwards to no platforms yet.
+exist in Home Assistant. This module wires a config entry to its coordinator and
+platforms; all planning logic lives in the pure planner.
 """
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-# Platforms are added as each phase lands. See PLAN.md.
-PLATFORMS: list[Platform] = []
+from .coordinator import BitCruiseConfigEntry, BitCruiseCoordinator
+
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> bool:
     """Set up BitCruise from a config entry."""
-    if PLATFORMS:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator = BitCruiseCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    await coordinator.async_setup_listeners()
+
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> bool:
     """Unload a config entry."""
-    if not PLATFORMS:
-        return True
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def _async_reload_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> None:
+    """Reload when options change, so new settings take effect immediately."""
+    await hass.config_entries.async_reload(entry.entry_id)
