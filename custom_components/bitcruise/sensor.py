@@ -75,6 +75,19 @@ def _window_mean_price(data: BitCruiseData) -> Decimal | None:
     return plan.estimated_cost / Decimal(str(plan.planned_grid_kwh))
 
 
+def _attribute_price(value: Decimal | None) -> float | None:
+    """Render a price for a state attribute.
+
+    Attributes are serialized with orjson, which refuses Decimal outright and
+    takes the whole entity offline when it hits one. Currency is Decimal
+    everywhere internally so repeated addition stays exact; that precision has
+    done its job by the time a number is shown to a person.
+    """
+    if value is None:
+        return None
+    return round(float(value), 4)
+
+
 SENSORS: tuple[BitCruiseSensorDescription, ...] = (
     BitCruiseSensorDescription(
         key="charging_deficit",
@@ -266,6 +279,8 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             # These two together explain why a window was chosen. When the mean
             # is well above the cheapest price available, the ready-by deadline
             # ruled the cheap period out rather than the planner missing it.
-            "window_mean_price": _window_mean_price(data),
-            "cheapest_price_in_horizon": data.cheapest_price_in_horizon,
+            "window_mean_price": _attribute_price(_window_mean_price(data)),
+            "cheapest_price_in_horizon": _attribute_price(
+                data.cheapest_price_in_horizon
+            ),
         }

@@ -6,7 +6,7 @@ time passing, and several entities changing at once.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -21,12 +21,11 @@ from custom_components.bitcruise.const import (
     CONF_SOC_ENTITY,
     CONF_TARGET_ENTITY,
     DOMAIN,
-    REPLAN_DEBOUNCE_SECONDS,
 )
 from custom_components.bitcruise.coordinator import next_evaluation_boundary
 from custom_components.bitcruise.models import to_utc
 from freezegun import freeze_time
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -151,54 +150,53 @@ class TestNextEvaluationBoundary:
         assert to_utc(first) != to_utc(second)
 
 
-async def test_a_burst_of_source_changes_recomputes_once(
-    hass: HomeAssistant,
-) -> None:
-    """A waking car updates several entities at once; that is one replan.
+async def test_a_burst_of_source_changes_all_land(hass: HomeAssistant) -> None:
+    """Every change in a burst is applied, with no cooldown swallowing any.
 
-    The first change still applies immediately, so the dashboard does not lag
-    behind the car by the cooldown.
+    A debouncer sat here briefly and coalesced a burst into one recomputation
+    plus a delayed follow-up. Nothing downstream is expensive enough to justify
+    that, and it left the visible state trailing reality by the cooldown.
     """
     with freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH)):
         entry = await _setup(hass)
-        updates = 0
-
-        @callback
-        def _count() -> None:
-            nonlocal updates
-            updates += 1
-
-        entry.runtime_data.async_add_listener(_count)
 
         for soc in ("54", "55", "56", "57", "58"):
             hass.states.async_set(SOC, soc, {"unit_of_measurement": "%"})
         await hass.async_block_till_done()
 
-        assert updates == 1
+        assert entry.runtime_data.data.current_soc_pct == 58.0
+        assert float(hass.states.get("sensor.bitcruise_charging_deficit").state) == 32.0
 
 
-async def test_the_cooldown_releases_a_trailing_recomputation(
+async def test_sources_appearing_after_setup_are_picked_up(
     hass: HomeAssistant,
 ) -> None:
-    """Changes coalesced during the cooldown are not simply dropped."""
-    with freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH)) as frozen:
-        entry = await _setup(hass)
+    """Home Assistant starts BitCruise before the car and price integrations.
 
-        for soc in ("54", "55"):
-            hass.states.async_set(SOC, soc, {"unit_of_measurement": "%"})
-        await hass.async_block_till_done()
-
-        # The immediate recomputation saw 54; 55 arrived inside the cooldown.
-        assert entry.runtime_data.data.current_soc_pct == 54.0
-
-        later = datetime(2026, 8, 9, 18, 0, tzinfo=CPH) + timedelta(
-            seconds=REPLAN_DEBOUNCE_SECONDS + 1
+    This is the ordinary case on a restart, not an edge case: nothing else has
+    to happen afterwards for the plan to appear.
+    """
+    with freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH)):
+        await hass.config.async_set_time_zone("Europe/Copenhagen")
+        entry = MockConfigEntry(
+            domain=DOMAIN, data=SOURCES, options=SETTINGS, title="BitCruise"
         )
-        frozen.move_to(later)
-        async_fire_time_changed(hass, later)
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        assert entry.runtime_data.data.current_soc_pct == 55.0
+        assert hass.states.get("sensor.bitcruise_plan_status").state == "error"
+
+        hass.states.async_set(SOC, "53", {"unit_of_measurement": "%"})
+        hass.states.async_set(TARGET, "90", {"unit_of_measurement": "%"})
+        hass.states.async_set(CAPACITY, "81.608", {"unit_of_measurement": "kWh"})
+        hass.states.async_set(PRICE, "1.759", _price_attributes())
+        await hass.async_block_till_done()
+
+        status = hass.states.get("sensor.bitcruise_plan_status")
+        assert status.attributes["problems"] == []
+        assert status.state == "approved"
+        assert float(hass.states.get("sensor.bitcruise_charging_deficit").state) == 37.0
 
 
 async def test_status_reports_what_the_price_adapter_parsed(

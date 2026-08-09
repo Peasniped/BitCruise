@@ -24,8 +24,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) ->
     """Set up BitCruise from a config entry."""
     coordinator = BitCruiseCoordinator(hass, entry)
     await coordinator.async_load_stored_state()
-    await coordinator.async_config_entry_first_refresh()
+    # Listeners go up before the first evaluation, not after. Source
+    # integrations are often still starting, and an entity that appeared in
+    # between would otherwise go unnoticed until something else changed.
     await coordinator.async_setup_listeners()
+    await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

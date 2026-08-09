@@ -37,12 +37,6 @@ DEFAULT_RESERVE_FLOOR_PCT: Final = 0.0
 DEFAULT_TARGET_PCT: Final = 80.0
 DEFAULT_READY_BY: Final = "07:00:00"
 
-# A waking car updates state of charge, plug status and availability within the
-# same second. The first change is applied immediately so the UI stays
-# responsive; anything arriving during the cooldown is coalesced into one
-# follow-up recomputation rather than replanning per event (DESIGN.md 6).
-REPLAN_DEBOUNCE_SECONDS: Final = 5.0
-
 # One price interval. A window that moves by less than this has shifted within a
 # slot rather than to a different one, which is not worth asking about.
 DEFAULT_MATERIAL_CHANGE_MINUTES: Final = 60

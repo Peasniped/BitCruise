@@ -16,7 +16,6 @@ from homeassistant.core import (
     HomeAssistant,
     callback,
 )
-from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
     async_track_point_in_time,
     async_track_state_change_event,
@@ -46,7 +45,6 @@ from .const import (
     DEFAULT_READY_BY,
     DEFAULT_RESERVE_FLOOR_PCT,
     DOMAIN,
-    REPLAN_DEBOUNCE_SECONDS,
 )
 from .models import (
     ApprovalPolicy,
@@ -218,12 +216,6 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             name=DOMAIN,
             config_entry=entry,
             update_interval=None,
-            request_refresh_debouncer=Debouncer(
-                hass,
-                _LOGGER,
-                cooldown=REPLAN_DEBOUNCE_SECONDS,
-                immediate=True,
-            ),
         )
         self._unsub_boundary: CALLBACK_TYPE | None = None
         self._store = PlanStore(hass, entry.entry_id)
@@ -325,8 +317,11 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         if not entities:
             return
 
-        async def _handle(event: Event[EventStateChangedData]) -> None:
-            await self.async_request_refresh()
+        @callback
+        def _handle(event: Event[EventStateChangedData]) -> None:
+            self.config_entry.async_create_task(
+                self.hass, self.async_refresh(), eager_start=True
+            )
 
         self.config_entry.async_on_unload(
             async_track_state_change_event(self.hass, entities, _handle)
@@ -375,7 +370,7 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
     async def _handle_boundary(self, _now: datetime) -> None:
         """Recompute because the clock passed something that matters."""
         self._unsub_boundary = None
-        await self.async_request_refresh()
+        await self.async_refresh()
 
     async def _async_update_data(self) -> BitCruiseData:
         """Recompute from current entity states, persisting any approval change."""
@@ -581,8 +576,14 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             return None
 
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable"):
-            problems.append(f"{entity_id}: price entity unavailable")
+        if state is None:
+            # Distinct from the entity being unavailable, and it needs a
+            # different fix: a missing entity id means the integration that
+            # provides it is not loaded, or the wrong entity was selected.
+            problems.append(f"{entity_id}: entity not found")
+            return None
+        if state.state in ("unknown", "unavailable"):
+            problems.append(f"{entity_id}: state is {state.state}")
             return None
 
         data = parse_price_attributes(state.attributes, source=entity_id)
