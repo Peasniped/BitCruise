@@ -34,7 +34,7 @@ SETTINGS: dict[str, Any] = {
 
 
 def settings_without(*keys: str) -> dict[str, Any]:
-    """Settings minus the given keys.
+    """Build settings with the given keys removed.
 
     The settings schema omits the fixed target and capacity fields when the
     matching entity is selected, and voluptuous rejects extra keys, so tests must
