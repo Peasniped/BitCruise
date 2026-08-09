@@ -32,3 +32,9 @@ DEFAULT_CHARGING_EFFICIENCY: Final = 90.0
 DEFAULT_RESERVE_FLOOR_PCT: Final = 0.0
 DEFAULT_TARGET_PCT: Final = 80.0
 DEFAULT_READY_BY: Final = "07:00:00"
+
+# A waking car updates state of charge, plug status and availability within the
+# same second. The first change is applied immediately so the UI stays
+# responsive; anything arriving during the cooldown is coalesced into one
+# follow-up recomputation rather than replanning per event (DESIGN.md 6).
+REPLAN_DEBOUNCE_SECONDS: Final = 5.0
