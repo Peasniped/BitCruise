@@ -21,6 +21,26 @@
           "price_entity": "Optional for now. Used from the next release onward to find the cheapest charging window."
         }
       },
+      "reconfigure": {
+        "title": "Change the selected entities",
+        "description": "Pick different entities without losing your settings. Clearing a field falls back to the fixed value on the next page.",
+        "data": {
+          "soc_entity": "Battery level",
+          "target_entity": "Charge target",
+          "capacity_entity": "Battery capacity",
+          "plug_entity": "Charging cable connected",
+          "availability_entity": "Vehicle availability",
+          "price_entity": "Electricity price"
+        },
+        "data_description": {
+          "soc_entity": "The vehicle's current state of charge, in percent.",
+          "target_entity": "How full the car should be charged, in percent. Make sure this is a percentage: a 'charging limit' in amps controls how fast it charges, not how full it gets.",
+          "capacity_entity": "Usable battery capacity in kWh or Wh.",
+          "plug_entity": "Either a binary sensor, or a sensor reporting connected or disconnected.",
+          "availability_entity": "Reports whether the vehicle is reachable, so charging is never planned from a stale battery level.",
+          "price_entity": "Used from the next release onward to find the cheapest charging window."
+        }
+      },
       "settings": {
         "title": "Charging settings",
         "description": "Values used to work out how much energy is needed and how long it will take.",
@@ -51,7 +71,8 @@
       "target_not_a_percentage": "That entity is not measured in percent. A 'charging limit' in amps controls how fast the car charges, not how full it gets. Pick the entity that reports the charge target as a percentage, or leave this empty and set a fixed target on the next page."
     },
     "abort": {
-      "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported."
+      "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported.",
+      "reconfigure_successful": "BitCruise was reconfigured."
     }
   },
   "options": {

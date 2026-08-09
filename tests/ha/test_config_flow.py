@@ -176,6 +176,61 @@ async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
     assert entry.state is config_entries.ConfigEntryState.NOT_LOADED
 
 
+async def test_reconfigure_changes_sources_and_keeps_settings(
+    hass: HomeAssistant,
+) -> None:
+    """Recovering from a wrong entity must not require deleting the integration."""
+    entry = MockConfigEntry(domain=DOMAIN, data=SOURCES, options=SETTINGS)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**SOURCES, CONF_TARGET_ENTITY: TARGET_ENTITY}
+    )
+    assert result["step_id"] == "settings"
+
+    settings = {k: v for k, v in SETTINGS.items() if k != CONF_TARGET_FIXED_PCT}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], settings)
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_TARGET_ENTITY] == TARGET_ENTITY
+    assert entry.options[CONF_CHARGING_POWER_KW] == 11.0
+
+
+async def test_fixed_target_hidden_when_entity_selected(
+    hass: HomeAssistant,
+) -> None:
+    """A dead input the entity always overrides must not be offered."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**SOURCES, CONF_TARGET_ENTITY: TARGET_ENTITY}
+    )
+
+    keys = {str(key) for key in result["data_schema"].schema}
+    assert CONF_TARGET_FIXED_PCT not in keys
+    assert CONF_CHARGING_POWER_KW in keys
+
+
+async def test_fixed_target_shown_without_entity(hass: HomeAssistant) -> None:
+    """Without a target entity the fixed target is the only way to set one."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SOURCES)
+
+    keys = {str(key) for key in result["data_schema"].schema}
+    assert CONF_TARGET_FIXED_PCT in keys
+
+
 async def test_options_flow_updates_settings(hass: HomeAssistant) -> None:
     """Settings can be changed without reselecting entities."""
     entry = MockConfigEntry(domain=DOMAIN, data=SOURCES, options=SETTINGS)

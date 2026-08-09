@@ -6,6 +6,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -82,22 +83,39 @@ SOURCES_SCHEMA = vol.Schema(
 )
 
 
-def settings_schema(defaults: dict[str, Any]) -> vol.Schema:
-    """Build the settings schema, pre-filled with current values."""
-    return vol.Schema(
-        {
+def settings_schema(
+    defaults: dict[str, Any], sources: dict[str, Any] | None = None
+) -> vol.Schema:
+    """Build the settings schema, pre-filled with current values.
+
+    The fixed target and capacity fields are omitted when the corresponding
+    entity was selected, because they would then be dead inputs: the entity
+    always wins, so offering the number invites the user to set a value that is
+    silently ignored.
+    """
+    sources = sources or {}
+    fields: dict[Any, Any] = {}
+
+    if not sources.get(CONF_TARGET_ENTITY):
+        fields[
             vol.Optional(
                 CONF_TARGET_FIXED_PCT,
                 default=defaults.get(CONF_TARGET_FIXED_PCT, DEFAULT_TARGET_PCT),
-            ): _percentage(),
+            )
+        ] = _percentage()
+
+    if not sources.get(CONF_CAPACITY_ENTITY):
+        fields[
             vol.Optional(
                 CONF_CAPACITY_FIXED_KWH,
                 default=defaults.get(CONF_CAPACITY_FIXED_KWH, 0),
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=0, max=500, step=0.001, unit_of_measurement="kWh"
-                )
-            ),
+            )
+        ] = NumberSelector(
+            NumberSelectorConfig(min=0, max=500, step=0.001, unit_of_measurement="kWh")
+        )
+
+    fields.update(
+        {
             vol.Required(
                 CONF_CHARGING_POWER_KW,
                 default=defaults.get(CONF_CHARGING_POWER_KW, DEFAULT_CHARGING_POWER_KW),
@@ -124,6 +142,7 @@ def settings_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): TimeSelector(),
         }
     )
+    return vol.Schema(fields)
 
 
 def validate_settings(
@@ -199,16 +218,52 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
         """Start with no collected sources."""
         self._sources: dict[str, Any] = {}
 
+    @property
+    def _reconfigure_entry(self) -> ConfigEntry | None:
+        """The entry being reconfigured, or None during initial setup."""
+        if self.source != SOURCE_RECONFIGURE:
+            return None
+        return self._get_reconfigure_entry()
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect the source entities."""
+        """Collect the source entities during initial setup."""
+        return await self._async_step_sources(user_input, "user")
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the selected entities without deleting the integration.
+
+        Picking the wrong entity is easy, and a vehicle integration can rename or
+        replace one. Forcing a delete and re-add to recover would also discard
+        every setting.
+        """
+        return await self._async_step_sources(user_input, "reconfigure")
+
+    async def _async_step_sources(
+        self, user_input: dict[str, Any] | None, step_id: str
+    ) -> ConfigFlowResult:
+        """Show and validate the source entity form."""
+        entry = self._reconfigure_entry
+        suggestions = dict(entry.data) if entry else {}
+
         if user_input is None:
-            return self.async_show_form(step_id="user", data_schema=SOURCES_SCHEMA)
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=self.add_suggested_values_to_schema(
+                    SOURCES_SCHEMA, suggestions
+                ),
+            )
 
         if errors := validate_sources(self.hass, user_input):
             return self.async_show_form(
-                step_id="user", data_schema=SOURCES_SCHEMA, errors=errors
+                step_id=step_id,
+                data_schema=self.add_suggested_values_to_schema(
+                    SOURCES_SCHEMA, user_input
+                ),
+                errors=errors,
             )
 
         self._sources = user_input
@@ -218,9 +273,13 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect the charging settings."""
+        entry = self._reconfigure_entry
+        defaults = dict(entry.options) if entry else {}
+
         if user_input is None:
             return self.async_show_form(
-                step_id="settings", data_schema=settings_schema({})
+                step_id="settings",
+                data_schema=settings_schema(defaults, self._sources),
             )
 
         errors = validate_settings(
@@ -229,8 +288,13 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
         if errors:
             return self.async_show_form(
                 step_id="settings",
-                data_schema=settings_schema(user_input),
+                data_schema=settings_schema(user_input, self._sources),
                 errors=errors,
+            )
+
+        if entry is not None:
+            return self.async_update_reload_and_abort(
+                entry, data=self._sources, options=user_input
             )
 
         return self.async_create_entry(
@@ -251,21 +315,21 @@ class BitCruiseOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Show and save the adjustable settings."""
-        current = {**self.config_entry.data, **self.config_entry.options}
+        sources = dict(self.config_entry.data)
+        current = {**sources, **self.config_entry.options}
 
         if user_input is None:
             return self.async_show_form(
-                step_id="init", data_schema=settings_schema(current)
+                step_id="init", data_schema=settings_schema(current, sources)
             )
 
-        sources = dict(self.config_entry.data)
         errors = validate_settings(
             sources, user_input, read_target_entity(self.hass, sources)
         )
         if errors:
             return self.async_show_form(
                 step_id="init",
-                data_schema=settings_schema(user_input),
+                data_schema=settings_schema(user_input, sources),
                 errors=errors,
             )
 
