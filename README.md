@@ -76,18 +76,29 @@ ruff format .                 # format
 
 ### Running tests on Windows
 
-Home Assistant cannot be imported on Windows — `homeassistant.runner` imports the
-Unix-only `fcntl` module. The test suite is therefore split:
+Home Assistant does not support Windows: it imports the Unix-only `fcntl` and
+`resource` modules, and its test harness blocks the sockets Windows asyncio needs.
+`tools/winshim/` provides stand-ins for the first two, and `tests/ha/conftest.py`
+lifts the socket guard on Windows only, so the whole suite runs:
 
-```bash
-pytest -p no:homeassistant --ignore=tests/ha   # pure tests - works on Windows
-pytest                                         # everything - Linux, macOS, or CI only
+```powershell
+$env:PYTHONPATH = "$PWD\tools\winshim"
+pytest
+```
+
+On Linux and macOS no setup is needed — just `pytest`. The shims refuse to import
+anywhere but Windows, so they can never shadow the real modules, and CI keeps the
+socket guard that catches tests reaching the network.
+
+Without `PYTHONPATH` set, the pure tests still run on their own:
+
+```powershell
+pytest -p no:homeassistant --ignore=tests/ha
 ```
 
 `tests/` holds pure tests with no Home Assistant dependency; `tests/ha/` holds tests
-that need a `hass` instance. The pure charging planner lives entirely on the first
-side of that line by design, so most development can happen on Windows. The
-Home Assistant tests run in CI on every push.
+that need a `hass` instance. The charging planner and price adapter live entirely on
+the first side of that line by design.
 
 ### VS Code
 

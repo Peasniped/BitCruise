@@ -111,7 +111,7 @@
       "proposed_start": { "name": "Proposed start" },
       "proposed_end": { "name": "Proposed end" },
       "estimated_cost": { "name": "Estimated cost" },
-      "estimated_soc_at_ready": { "name": "Estimated charge at ready time" },
+      "estimated_soc_at_ready": { "name": "Estimated SoC at ready" },
       "price_quality": {
         "name": "Price quality",
         "state": {

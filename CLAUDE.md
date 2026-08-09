@@ -66,10 +66,19 @@ prefer encoding decisions as tests and docstrings — those survive the document
 
 - Development workstation is **Windows**. Target Home Assistant instance is **HA OS, Core 2026.8.1**.
 - HA 2026.3+ requires **Python 3.14**. The repo venv is `.venv` on 3.14; a 3.13 venv silently resolves Home Assistant back to 2026.2.x, so do not use it.
-- **Home Assistant cannot be imported on Windows** (`homeassistant.runner` imports the Unix-only `fcntl`). Consequences:
-  - Pure tests: `pytest -p no:homeassistant --ignore=tests/ha` — these run locally. `no:homeassistant` is the `pytest11` entry-point name, not the package name.
-  - `tests/ha/` needs Linux/macOS or CI. Do not claim these passed unless they were actually executed somewhere.
-  - `tests/conftest.py` must never import Home Assistant.
+- **Running the tests on Windows.** Home Assistant imports the Unix-only `fcntl` and `resource`, and its test harness blocks the sockets Windows asyncio needs. `tools/winshim/` plus a Windows-only escape in `tests/ha/conftest.py` work around all three:
+
+  ```powershell
+  $env:PYTHONPATH = "D:\Github\BitCruise\tools\winshim"
+  .\.venv\Scripts\python.exe -m pytest -q
+  ```
+
+  Without `PYTHONPATH` set, only the pure tests can run:
+  `pytest -p no:homeassistant --ignore=tests/ha` (`no:homeassistant` is the `pytest11` entry-point name, not the package name).
+- **Run the full suite before pushing.** CI logs are not readable from here without a token, so a red build costs a blind round trip. The shims exist precisely so that is avoidable.
+- `tests/conftest.py` must never import Home Assistant, so the pure tests keep working without the shims.
+- HA test instances do **not** use your timezone. Any test involving ready-by must call `await hass.config.async_set_time_zone(...)`, or a wall-clock time resolves to the wrong instant and the planner correctly picks a different window.
+- Entity IDs derive from the **display name**, not the translation key. Keep them consistent or `sensor.bitcruise_<key>` will not exist.
 
 ## Coding standards
 

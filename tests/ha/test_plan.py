@@ -53,15 +53,25 @@ async def _setup(
     hass: HomeAssistant,
     soc: str = "53",
     price_attributes: dict[str, Any] | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> MockConfigEntry:
-    """Set up an entry with the real price fixture."""
+    """Set up an entry with the real price fixture.
+
+    The instance timezone must match the price data. Ready-by is a wall-clock
+    time, so a test instance left in another zone resolves "07:00" to a
+    different instant and the planner correctly picks a different window.
+    """
+    await hass.config.async_set_time_zone("Europe/Copenhagen")
     hass.states.async_set(SOC, soc, {"unit_of_measurement": "%"})
     hass.states.async_set(TARGET, "90", {"unit_of_measurement": "%"})
     hass.states.async_set(CAPACITY, "81.608", {"unit_of_measurement": "kWh"})
     hass.states.async_set(PRICE, "1.759", price_attributes or _price_attributes())
 
     entry = MockConfigEntry(
-        domain=DOMAIN, data=SOURCES, options=SETTINGS, title="BitCruise"
+        domain=DOMAIN,
+        data=SOURCES,
+        options=settings or SETTINGS,
+        title="BitCruise",
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -125,7 +135,7 @@ async def test_plan_uses_actual_prices_when_available(
     )
 
 
-@freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH))
+@freeze_time(datetime(2026, 8, 10, 18, 0, tzinfo=CPH))
 async def test_forecast_only_still_produces_a_plan(hass: HomeAssistant) -> None:
     """Before tomorrow's prices publish, a forecast-based plan is still useful."""
     attributes = _price_attributes()
@@ -140,10 +150,12 @@ async def test_forecast_only_still_produces_a_plan(hass: HomeAssistant) -> None:
 
 @freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH))
 async def test_short_horizon_reports_shortfall(hass: HomeAssistant) -> None:
-    """An empty battery cannot be filled by 07:00, and must say so."""
-    attributes = _price_attributes()
-    attributes["forecast"] = []
-    await _setup(hass, soc="5", price_attributes=attributes)
+    """A near-empty battery on a slow charger cannot be filled by 07:00.
+
+    5% to 90% of 81.608 kWh is 77.1 kWh from the grid, which needs about 21
+    hours at 3.7 kW. Only 13 hours remain before the deadline.
+    """
+    await _setup(hass, soc="5", settings={**SETTINGS, CONF_CHARGING_POWER_KW: 3.7})
 
     assert hass.states.get("binary_sensor.bitcruise_target_unreachable").state == "on"
     status = hass.states.get("sensor.bitcruise_plan_status")
@@ -156,12 +168,15 @@ async def test_no_price_entity_leaves_deficits_but_no_window(
     hass: HomeAssistant,
 ) -> None:
     """Without prices the requirement is still known; the schedule is not."""
+    await hass.config.async_set_time_zone("Europe/Copenhagen")
     hass.states.async_set(SOC, "53", {"unit_of_measurement": "%"})
     hass.states.async_set(TARGET, "90", {"unit_of_measurement": "%"})
     hass.states.async_set(CAPACITY, "81.608", {"unit_of_measurement": "kWh"})
 
     sources = {k: v for k, v in SOURCES.items() if k != CONF_PRICE_ENTITY}
-    entry = MockConfigEntry(domain=DOMAIN, data=sources, options=SETTINGS)
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=sources, options=SETTINGS, title="BitCruise"
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
