@@ -20,17 +20,25 @@ The project builds in layers. The first useful release solves charging well befo
 | 5 | Notifications | Not started |
 | 6 | Charger execution | Not started |
 | 7 | Restart recovery and robustness | Not started |
-| 8 | First HACS-quality release | Not started |
-| 9 | Calendar booking input | Future |
-| 10 | Trip energy planning | Future |
-| 11 | Booking conflict decisions | Future |
-| 12 | Fastmail invitation RSVP adapter | Future / optional |
-| 13 | Urgency-aware planning for unplanned trips | Future |
-| 14 | Planned distance calendar | Future |
+| 8 | Daily charging for battery health | Not started |
+| 9 | Urgency-aware planning for unplanned trips | Not started |
+| 10 | Calendar booking input | Future |
+| 11 | Trip energy planning | Future |
+| 12 | Booking conflict decisions | Future |
+| 13 | Planned distance calendar | Future |
+| 14 | First HACS-quality release | Future |
 | 15 | Multiple vehicles and shared-resource coordination | Future |
 
-Phases 0–8 are ordered and build on each other. Phases 9–15 are future work and are
-not strictly ordered among themselves; each states its own dependencies.
+Phases 0–9 are ordered and build on each other. Phases 10–15 state their own
+dependencies.
+
+The public release sits at Phase 14, after the calendar and distance work, because
+the configuration schema should stop moving before other people install it and have
+to be migrated.
+
+Provider-specific calendar RSVP is **out of scope permanently**, not deferred. A
+separate lightweight project handles it. BitCruise may still decide whether a booking
+conflicts (Phase 12); it just never speaks the invitation protocol.
 
 Decided already: repository `Peasniped/BitCruise`, integration domain `bitcruise`,
 one vehicle per installation for V1 (`DESIGN.md` ADR-008).
@@ -159,71 +167,51 @@ Restarting Home Assistant at each of these points produces sensible behavior: be
 
 ---
 
-## Phase 8 — First HACS-quality release
+## Phase 8 — Daily charging for battery health
 
-**Goal.** Publish a version another Home Assistant user can install and understand without reading the source.
+**Depends on:** Phases 3 and 4.
 
-**Scope.** README installation instructions, documented entity requirements, troubleshooting and diagnostics sections, changelog, version alignment in `manifest.json`, and verified clean install plus upgrade through a HACS custom repository.
+**Goal.** Stop treating "full by a fixed morning deadline" as the only way to charge.
+A lithium battery ages faster the longer it sits at a high state of charge, so the
+default behaviour should be to hold a modest daily level and reach a high one only
+when something actually requires it.
 
-Call this `0.3.x` or `0.5.x`, not `1.0`, until the config schema and behavior have seen real household use.
+**Scope.** Three related changes, specified in `DESIGN.md` §6.5 and §17.
 
-**Acceptance criteria.**
+*Daily commute requirement.* The user enters their commute distance **one way**;
+BitCruise doubles it for the return leg, converts it to energy using the vehicle's
+own measured consumption where available, adds the reserve floor, and reports the
+state of charge that actually covers the day. That figure is what a daily target
+should be set to, instead of 90%.
 
-HACS validation, Hassfest, and the test suite all pass, and a clean install and an upgrade have both been tested.
+*Just-in-time finishing.* When several windows cost about the same, prefer the one
+that ends closest to the deadline rather than the earliest. Cost is unchanged; hours
+spent sitting at a high state of charge are not.
 
----
+Two things make this safe rather than clever. "About the same" needs an explicit
+tolerance, so a genuinely cheaper early window is never traded away for battery
+health. And finishing must target the deadline **minus a safety buffer**, configurable
+and defaulting to around 45 minutes, so a late start, a slow charger, or a car that
+tapers near the top does not turn a tidy optimisation into a car that is not ready.
 
-## Phase 9 — Calendar booking input (future)
+This reverses the current earliest-start tie-break, which exists so repeated planning
+is deterministic. Latest-start is equally deterministic, so the property is preserved
+rather than lost.
 
-**Goal.** Let a shared household calendar define when the car is needed, via `Fastmail -> CalDAV -> HA calendar entity -> BitCruise`.
-
-**Scope.** The calendar abstraction, booking schema convention, `CarBooking` model, and booking logic in `DESIGN.md` §17. No Fastmail credentials in BitCruise for this phase.
-
-**Acceptance criteria.**
-
-Adding a valid car-booking event changes the next ready-by deadline and required departure SoC without changing the core charging optimizer.
-
----
-
-## Phase 10 — Trip energy planning (future)
-
-**Goal.** Estimate the energy a booking requires, including the return journey, and derive a required departure SoC.
-
-**Scope.** The trip energy model and long-trip target policy in `DESIGN.md` §17, kept in a separate `trip_energy.py`.
-
-**Acceptance criteria.**
-
-A booking with an explicit distance produces a defensible required departure SoC and feeds it into the same planner used by ordinary charging, with `intermediate_charge_required` set honestly.
-
----
-
-## Phase 11 — Booking conflict decisions (future)
-
-**Goal.** Determine whether a requested car booking conflicts with existing bookings.
-
-This logic belongs in this project if BitCruise evolves into a household "car resource manager", because it directly determines vehicle availability and charging deadlines. Invitation transport stays adapter-based.
-
-**Scope.** The pure `booking_policy.py` decision engine and deterministic policy in `DESIGN.md` §17.
+*Optional deadline.* Ready-by becomes optional. A household without a fixed departure
+should be able to say "keep it above the floor, charge only when cheap" and have that
+be a complete configuration.
 
 **Acceptance criteria.**
 
-Given a fixture set of bookings, the decision engine returns deterministic conflict decisions with no network access and no Fastmail code.
+Entering a one-way commute produces a defensible minimum state of charge, and clearly
+reports whether the configured target covers a return trip plus reserve. With no
+deadline configured, charging still happens on price alone without the planner
+inventing a deadline.
 
 ---
 
-## Phase 12 — Fastmail invitation RSVP adapter (future / optional)
-
-**Goal.** Automatically accept or decline a Fastmail calendar invitation based on the booking decision engine.
-
-Only after the UX and conflict policy have been validated manually. First establish whether the selected HA calendar integration exposes RSVP at all; if not, choose between an in-repo adapter and a separate companion integration per `DESIGN.md` §17.
-
-**Acceptance criteria.**
-
-The booking policy remains testable without Fastmail. The provider adapter merely maps `ACCEPT`/`DECLINE` into the provider's supported RSVP mechanism.
-
----
-
-## Phase 13 — Urgency-aware planning for unplanned trips (future)
+## Phase 9 — Urgency-aware planning for unplanned trips
 
 **Depends on:** Phases 1, 2, 4. Independent of the calendar phases.
 
@@ -250,9 +238,50 @@ already approved plan survives unchanged.
 
 ---
 
-## Phase 14 — Planned distance calendar (future)
+## Phase 10 — Calendar booking input (future)
 
-**Depends on:** Phases 9 and 10. Can land before Phases 11 and 12.
+**Goal.** Let a shared household calendar define when the car is needed, via `Fastmail -> CalDAV -> HA calendar entity -> BitCruise`.
+
+**Scope.** The calendar abstraction, booking schema convention, `CarBooking` model, and booking logic in `DESIGN.md` §17. No Fastmail credentials in BitCruise for this phase.
+
+**Acceptance criteria.**
+
+Adding a valid car-booking event changes the next ready-by deadline and required departure SoC without changing the core charging optimizer.
+
+---
+
+## Phase 11 — Trip energy planning (future)
+
+**Goal.** Estimate the energy a booking requires, including the return journey, and derive a required departure SoC.
+
+**Scope.** The trip energy model and long-trip target policy in `DESIGN.md` §17, kept in a separate `trip_energy.py`.
+
+**Acceptance criteria.**
+
+A booking with an explicit distance produces a defensible required departure SoC and feeds it into the same planner used by ordinary charging, with `intermediate_charge_required` set honestly.
+
+---
+
+## Phase 12 — Booking conflict decisions (future)
+
+**Goal.** Determine whether a requested car booking conflicts with existing bookings.
+
+This logic belongs in this project if BitCruise evolves into a household "car resource manager", because it directly determines vehicle availability and charging deadlines.
+
+**Scope.** The pure `booking_policy.py` decision engine and deterministic policy in `DESIGN.md` §17.
+
+Producing the decision is in scope; acting on it is not. Replying to an invitation is a
+provider protocol concern and is handled by a separate project (ADR-005).
+
+**Acceptance criteria.**
+
+Given a fixture set of bookings, the decision engine returns deterministic conflict decisions with no network access and no provider-specific code.
+
+---
+
+## Phase 13 — Planned distance calendar (future)
+
+**Depends on:** Phases 10 and 11.
 
 **Goal.** Show how far the car is planned to drive on each day of the look-ahead
 horizon.
@@ -272,9 +301,34 @@ planned distance exceeds usable range is visibly flagged.
 
 ---
 
+## Phase 14 — First HACS-quality release (future)
+
+**Depends on:** everything above it.
+
+**Goal.** Publish a version another Home Assistant user can install and understand
+without reading the source.
+
+It sits here rather than earlier on purpose. Once other people install it, every
+configuration change needs a migration path, so the schema should stop moving first.
+
+**Scope.** README installation instructions, documented entity requirements,
+troubleshooting and diagnostics sections, changelog, version alignment in
+`manifest.json`, brand assets submitted to `home-assistant/brands`, and verified clean
+install plus upgrade through a HACS custom repository.
+
+Call this `0.5.x`, not `1.0`, until the configuration schema and behaviour have seen
+real household use.
+
+**Acceptance criteria.**
+
+HACS validation, Hassfest, and the test suite all pass, and a clean install and an
+upgrade have both been tested.
+
+---
+
 ## Phase 15 — Multiple vehicles and shared-resource coordination (future)
 
-**Depends on:** Phases 1–7. Should follow Phase 13, since a floor breach on one car
+**Depends on:** Phases 1–7. Should follow Phase 9, since a floor breach on one car
 competes with a normal plan on another.
 
 **Goal.** Support a household with more than one EV without double-booking a charger

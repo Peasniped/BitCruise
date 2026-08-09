@@ -25,7 +25,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 ## Open decisions
 
 - [ ] Whether ready-by is a `time` entity or an option-only setting in V1.
-- [ ] Default reserve floor percentage once Phase 13 lands. `0` in V1 keeps behavior unchanged; a shipped default of 30–40% would suit the reference household but changes behavior for everyone.
+- [ ] Default reserve floor percentage once Phase 9 lands. `0` in V1 keeps behavior unchanged; a shipped default of 30–40% would suit the reference household but changes behavior for everyone.
 - [ ] Whether a reserve-floor breach should also raise the effective charge target, or only change *when* charging happens. Current design says only the timing (`DESIGN.md` §5).
 - [ ] Multi-vehicle config entry model: one entry per vehicle vs. per-vehicle subentries (`DESIGN.md` §18).
 - [ ] Whether the household supply limit belongs in BitCruise or should read an existing HA power sensor.
@@ -334,27 +334,59 @@ reads `hass.states` and passes raw values in.
 - [ ] Diagnostics output with private data redacted.
 - [ ] Restart-recovery tests for each timing case in `PLAN.md` Phase 7.
 
-## Phase 8 — First HACS-quality release
+## Phase 8 — Daily charging for battery health
 
-- [ ] README installation instructions.
-- [ ] Document required/supported source entities.
-- [ ] Screenshots of config flow and entities.
-- [ ] Troubleshooting section.
-- [ ] Diagnostics instructions.
-- [ ] Changelog / release notes.
-- [ ] `manifest.json` version matches the release tag.
-- [ ] HACS validation passes.
-- [ ] Hassfest passes.
-- [ ] Test suite passes.
-- [ ] Clean install tested through a HACS custom repository.
-- [ ] Upgrade from a previous version tested.
-- [ ] Document backup/recovery implications.
+A battery ages faster sitting at a high state of charge, so holding a modest daily
+level should be the default. See `DESIGN.md` §6.5 and §17.
+
+### Daily commute requirement
+
+- [ ] One-way commute distance setting, doubled for the return leg. Label it "one way" unmistakably — entering the round trip gives a target twice too high, and nothing about the result looks wrong.
+- [ ] Read consumption from the vehicle where exposed (`17.9 kWh/100km` on the reference installation); configurable otherwise.
+- [ ] Configurable margin on consumption: the measured figure is a past average and winter is materially worse.
+- [ ] Add the reserve floor on top rather than comparing against it — arriving home at exactly the floor means the commute consumed everything spare.
+- [ ] `sensor.commute_energy_required` (kWh) and the state of charge that covers the day.
+- [ ] `binary_sensor.commute_covered` — whether the configured target covers a return trip with reserve intact.
+- [ ] Advise only: the vehicle target is read-only, so report the figure and let the user set it.
+- [ ] Put it in `trip_energy.py` — a commute is a trip that repeats and needs no booking.
+- [ ] Tests: one-way doubling; consumption from entity vs configured; floor added; target too low; margin applied.
+
+### Just-in-time finishing
+
+- [ ] Cost tolerance defining "about the same", so a genuinely cheaper early window is never traded away for battery health.
+- [ ] Among windows within tolerance, prefer the latest finish.
+- [ ] Safety buffer before the deadline, configurable, default about 45 minutes.
+- [ ] Drop the buffer rather than the charge when nothing fits, and report that it happened.
+- [ ] Reverse the tie-break to latest start; determinism is preserved, only the direction changes.
+- [ ] Tests: equal prices pick the latest; a cheaper early window still wins outside tolerance; buffer respected; buffer dropped when infeasible; determinism holds.
+
+### Optional deadline
+
+- [ ] Make ready-by optional in the config flow.
+- [ ] With no deadline, plan on price and the reserve floor alone across the known horizon.
+- [ ] Never invent a deadline to fill the gap.
+- [ ] Tests: no deadline still charges; no deadline and no floor does nothing rather than charging arbitrarily.
+
+## Phase 9 — Urgency-aware planning for unplanned trips
+
+Depends on Phases 1, 2, 4. See `DESIGN.md` §6.4 and ADR-007.
+
+- [ ] Urgency-aware search window: start from "as soon as connected" rather than gating on ready-by.
+- [ ] Objective switch: restore the floor at the earliest opportunity, cheapest-first only among non-delaying intervals.
+- [ ] Two-segment plans: urgent portion up to the floor, then `NORMAL` optimization up to the target.
+- [ ] Recompute urgency on every SoC change; a drop through the floor produces an `URGENT` plan.
+- [ ] Urgent replan when the car reconnects below the floor outside any approved window.
+- [ ] `auto_approve_urgent` setting, default enabled.
+- [ ] Guarantee: urgent charging never cancels, shortens, or moves an approved plan; it is added before it.
+- [ ] Approved plan invalidated by an unexpected SoC drop stages a replacement proposal rather than extending itself.
+- [ ] Notification case: charging urgently because the car is below the reserve floor.
+- [ ] Tests: floor breach while idle; breach mid-window; reconnect below floor; urgent plan overlapping an approved plan; `auto_approve_urgent` disabled.
 
 ---
 
 ## Future phases (not scheduled)
 
-### Phase 9 — Calendar booking input
+### Phase 10 — Calendar booking input
 
 - [ ] Optional car-booking calendar entity in config.
 - [ ] Look-ahead horizon, parsing mode, consumption kWh/100 km, reserve SoC, normal target, max target, trip-prep approval policy.
@@ -364,7 +396,7 @@ reads `hass.states` and passes raw values in.
 - [ ] Determine next required departure time.
 - [ ] Derive required departure SoC and feed target/deadline into the planner.
 
-### Phase 10 — Trip energy planning
+### Phase 11 — Trip energy planning
 
 - [ ] `trip_energy.py` with the base model.
 - [ ] Outputs: trip energy, minimum/recommended departure SoC, fits-in-one-charge, expected arrival SoC, `intermediate_charge_required`.
@@ -379,38 +411,19 @@ reads `hass.states` and passes raw values in.
 - [ ] Automatic restore only where a writable actuator exists, and only behind a policy setting — silently lowering a deliberately raised target is its own surprise.
 - [ ] Tests: prompt issued / skipped when already high enough; user raises in time; user never raises; user raises partially; restore reminder fires once; state clears on manual restore; user sets a new lower normal.
 
-### Phase 11 — Booking conflict decisions
+### Phase 12 — Booking conflict decisions
+
+Producing the decision is in scope; replying to the invitation is not. A separate
+project owns that (ADR-005).
 
 - [ ] Pure `booking_policy.py` returning `BookingDecision`.
 - [ ] Deterministic initial policy (accept / decline / needs-review).
-- [ ] Fixture-based tests with no network access.
+- [ ] Expose the decision so another project can act on it.
+- [ ] Fixture-based tests with no network access and no provider-specific code.
 
-### Phase 12 — Fastmail invitation RSVP adapter
+### Phase 13 — Planned distance calendar
 
-- [ ] Investigate whether the selected HA calendar integration exposes RSVP.
-- [ ] Choose Option A (in-repo adapter) or Option B (companion integration).
-- [ ] Implement the chosen transport behind an adapter interface.
-- [ ] Privacy review: minimal permissions, no invitation bodies logged, credentials via HA config entries.
-
-### Phase 13 — Urgency-aware planning for unplanned trips
-
-Depends on Phases 1, 2, 4. See `DESIGN.md` §6.4 and ADR-007.
-
-- [ ] Urgency-aware search window: start from "as soon as connected" rather than gating on ready-by.
-- [ ] Objective switch: restore the floor at the earliest opportunity, cheapest-first only among non-delaying intervals.
-- [ ] Two-segment plans: urgent portion up to the floor, then `NORMAL` optimization up to the target.
-- [ ] Recompute urgency on every SoC change; a drop through the floor produces an `URGENT` plan.
-- [ ] Urgent replan when the car reconnects below the floor outside any approved window.
-- [ ] `auto_approve_urgent` setting, default enabled.
-- [ ] Guarantee: urgent charging never cancels, shortens, or moves an approved plan; it is added before it.
-- [ ] Approved plan invalidated by an unexpected SoC drop stages a replacement proposal rather than extending itself.
-- [ ] `sensor.reserve_floor_deficit` and urgency exposed on plan status.
-- [ ] Notification case: charging urgently because the car is below the reserve floor.
-- [ ] Tests: floor breach while idle; breach mid-window; reconnect below floor; urgent plan overlapping an approved plan; `auto_approve_urgent` disabled.
-
-### Phase 14 — Planned distance calendar
-
-Depends on Phases 9 and 10. See `DESIGN.md` §17.
+Depends on Phases 10 and 11. See `DESIGN.md` §17.
 
 - [ ] Aggregate `CarBooking` distances into local-day totals, DST-correct.
 - [ ] Apply return-trip doubling.
@@ -422,6 +435,24 @@ Depends on Phases 9 and 10. See `DESIGN.md` §17.
 - [ ] Label the output as planned distance only, so it is not read as expected SoC drain.
 - [ ] Evaluate a BitCruise-provided `calendar` entity only after the sensor proves useful.
 - [ ] Tests: DST days, multi-day bookings, missing distance, overlapping bookings, over-range days.
+
+### Phase 14 — First HACS-quality release
+
+Deliberately after the calendar and distance work: once other people install it, every
+configuration change needs a migration path, so the schema should stop moving first.
+
+- [ ] README installation instructions.
+- [ ] Document required/supported source entities.
+- [ ] Screenshots of config flow and entities.
+- [ ] Troubleshooting section.
+- [ ] Diagnostics instructions.
+- [ ] Changelog / release notes.
+- [ ] `manifest.json` version matches the release tag.
+- [ ] Submit `icon.png` to `home-assistant/brands`, then drop `ignore: brands` from the HACS workflow.
+- [ ] HACS validation, Hassfest and the test suite all pass.
+- [ ] Clean install tested through a HACS custom repository.
+- [ ] Upgrade from a previous version tested.
+- [ ] Document backup/recovery implications.
 
 ### Phase 15 — Multiple vehicles and shared-resource coordination
 

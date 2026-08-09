@@ -511,6 +511,59 @@ Carrying the floor through the domain model in V1 is a deliberate cost: it is a 
 amount of unused plumbing now, in exchange for not re-opening `PlanningInput`,
 `ChargePlan`, persistence, and the approval state machine later.
 
+### 6.5 Battery longevity: just-in-time finishing and an optional deadline
+
+A lithium battery ages faster the longer it sits at a high state of charge. Two
+defaults work against that, and both are worth changing.
+
+#### Finish late, not early
+
+The planner picks the cheapest window before the deadline. That window may end hours
+before departure, leaving the car sitting full overnight for no benefit: the cost is
+identical whether it finishes at 03:00 or 06:15, but the time spent at a high state of
+charge is not.
+
+So among windows of **comparable** cost, prefer the one that finishes latest.
+
+Three constraints keep this from becoming a liability:
+
+- **An explicit tolerance.** "Comparable" means within a configured margin of the
+  cheapest option — a small absolute amount per kWh, or a percentage. Without it, the
+  planner would trade real money for battery health without being asked. Outside the
+  tolerance, price wins.
+- **A safety buffer.** Finishing targets `ready_by` minus a configurable buffer,
+  defaulting to about 45 minutes. Charging rarely goes exactly to plan: the charger
+  may start late, the car may taper as it approaches the target, and a whole final
+  interval may be allocated. Aiming at the deadline itself converts every one of those
+  into a car that is not ready.
+- **Determinism is preserved.** The existing tie-break prefers the earliest window so
+  that repeated planning over identical inputs produces an identical plan, which
+  matters because a changed plan triggers a fresh approval request. Preferring the
+  latest is equally deterministic; the property survives, only the direction changes.
+
+Selection therefore becomes: find the cheapest feasible window; take every window
+within the tolerance of it; among those, choose the one finishing latest that still
+ends by `ready_by - buffer`; break any remaining tie on latest start.
+
+If no window satisfies the buffer, the buffer is dropped rather than the charge —
+being ready late beats not charging — and the plan reports that it did so.
+
+#### The deadline itself should be optional
+
+"Ready by 07:00" assumes a fixed daily departure. Plenty of households do not have
+one, and for them the deadline is not merely unnecessary, it is actively harmful: it
+forces a full battery every morning whether or not the car moves.
+
+Ready-by therefore becomes optional. With no deadline configured, the reserve floor
+(section 6.4) is the whole policy: keep the car above the floor, charge when it is
+cheap, and nothing more. A household can then express "top it up cheaply, never let it
+get low" as a complete configuration, which is closer to how most cars are actually
+used.
+
+When no deadline is set, the planner has no horizon end other than the price data
+itself, so it optimises across whatever is known and simply reports a shorter horizon
+rather than inventing a deadline.
+
 ### Impossible deadline
 
 If the car cannot reach the target before ready-by:
@@ -1172,6 +1225,44 @@ class CarBooking:
 
 Booking logic: load upcoming events over a defined time range; normalize to `CarBooking`; detect overlaps; determine next required departure time; derive required departure SoC; feed required target/deadline into the existing charging planner.
 
+### Daily commute requirement
+
+The simplest and most useful case needs no calendar at all: the same drive, most days.
+
+The user enters their commute **one way**. BitCruise doubles it for the return leg and
+derives what the day actually costs in charge:
+
+```text
+commute_km          = one_way_km * 2
+commute_energy_kwh  = commute_km * consumption_kwh_per_100km / 100
+required_soc_pct    = commute_energy_kwh / usable_capacity_kwh * 100
+                      + reserve_floor_pct
+```
+
+Details that matter:
+
+- **Label it "one way" unmistakably.** A user who enters the round trip gets a target
+  twice too high and will never notice, because nothing about the result looks wrong.
+- **Consumption is read from the vehicle** where it exposes it — the reference
+  installation reports `17.9 kWh/100km` — and is configurable otherwise. A measured
+  average beats a guess, but it is a *past* average: winter consumption is materially
+  higher, so a configurable margin belongs here.
+- **The reserve floor is added, not compared against.** Arriving home at exactly the
+  floor means the commute consumed everything spare. The floor is what remains for
+  anything unplanned.
+- **This advises, it does not act.** The vehicle target is read-only on the reference
+  installation (section 17), so BitCruise reports the state of charge that covers the
+  day and whether the configured target reaches it. Changing the target stays the
+  user's decision.
+
+Exposed as the energy and percentage required, plus a binary sensor for whether the
+current target covers a return commute with reserve intact. That figure is what a
+daily target should be set to — usually far below the 80-90% people default to, which
+is the point.
+
+The same `trip_energy.py` module serves this and calendar-driven trips; the commute is
+just a trip that repeats and needs no booking.
+
 ### Trip energy model
 
 Start simple and configurable:
@@ -1225,7 +1316,7 @@ Decisions that must be explicit rather than incidental:
   distinction between "0 km planned" and "we do not know" is load-bearing: only the
   first is safe to plan against.
 - **Overlapping bookings.** Distances sum. Overlap is a booking-conflict concern
-  (Phase 11), not a distance-aggregation concern; the calendar reports what was booked
+  (Phase 12), not a distance-aggregation concern; the calendar reports what was booked
   and does not silently resolve conflicts.
 - **Unplanned driving.** By definition absent. The calendar shows *planned* distance
   only, and must be labelled as such wherever it is surfaced, so that a low planned
@@ -1336,7 +1427,7 @@ For a trip longer than usable battery range, 100% departure SoC helps but does n
 
 ### Booking conflict decisions
 
-Keep **booking conflict decisions** inside this project's domain logic, but keep **provider-specific RSVP transport** outside the core planner.
+Keep **booking conflict decisions** inside this project's domain logic. Replying to invitations is out of scope entirely; see below.
 
 Create a pure module, e.g. `booking_policy.py`:
 
@@ -1359,29 +1450,21 @@ Potential later policy: household member priority; buffer time before/after book
 
 The charging planner is never responsible for parsing invitation emails.
 
-### Fastmail invitation RSVP adapter
+### Replying to invitations is out of scope
 
-Do this only after validating the UX and conflict policy manually.
+BitCruise decides whether a booking conflicts. It never replies to the invitation.
 
-First investigate whether the Home Assistant calendar entity/integration selected by the user exposes the mutation/RSVP capability needed. If it does, use HA's calendar abstraction. Do not assume the generic HA CalDAV integration can respond to invitations merely because the underlying CalDAV server can.
+That is a deliberate boundary, not a deferral. Answering an invitation means speaking a
+provider's scheduling protocol, holding that provider's credentials, and tracking a
+mutation lifecycle that has nothing to do with charging a car. A separate lightweight
+project owns it and consumes the decision.
 
-If it does not:
+What stays here is the part that is genuinely car-domain: given the bookings, does this
+request conflict, and what does that mean for vehicle availability and charging
+deadlines. That is testable from fixtures with no network access and no provider code
+at all, which is exactly why it belongs on this side of the line.
 
-- **Option A** - optional Fastmail adapter inside this repo. Good when the code is small, authentication is manageable, and only a few CalDAV scheduling operations are required.
-- **Option B** - separate Fastmail scheduling companion integration. Preferred when OAuth/app-password lifecycle is substantial, calendar discovery/mutation/RSVP becomes a real subsystem, the code would be useful outside EV charging, or it begins duplicating Home Assistant's CalDAV integration.
-
-Default recommendation is **Option B if direct Fastmail credentials are required**. Keep BitCruise focused on car-domain decisions.
-
-Security/privacy:
-
-- never parse mailbox email if calendar scheduling can do the job;
-- request minimal permissions;
-- do not log invitation bodies/addresses by default;
-- store credentials through HA config entries/auth patterns.
-
-Fastmail supports calendars over CalDAV and supports CalDAV scheduling, so it is a reasonable future backend. For a personal prototype, app passwords can be used for CalDAV; if direct Fastmail support is ever distributed broadly, prefer the authentication approach Fastmail recommends at that time.
-
-As of the design date, Fastmail's public developer documentation still directs calendar access to CalDAV rather than its generally available JMAP APIs. Re-check this before implementing direct provider support because the API surface may change.
+The charging planner is likewise never responsible for parsing invitation emails.
 
 ---
 
@@ -1501,11 +1584,11 @@ the config flow.
 
 **Why:** provider independence and no duplicated credential handling.
 
-### ADR-005 - Booking decision and RSVP transport are separate
+### ADR-005 - Replying to invitations is out of scope
 
-**Decision:** this integration may decide whether a car booking conflicts, but provider-specific invitation acceptance/decline is behind an adapter and may become a separate integration.
+**Decision:** BitCruise may decide whether a car booking conflicts, and exposes that decision. It never accepts or declines an invitation. A separate project owns that and consumes the decision.
 
-**Why:** conflict logic is car-domain logic; CalDAV/Fastmail scheduling is provider/infrastructure logic.
+**Why:** conflict logic is car-domain logic and testable from fixtures. Replying means speaking a provider's scheduling protocol, holding its credentials, and tracking a mutation lifecycle — none of which has anything to do with charging a car, and all of which would have to be maintained here forever.
 
 ### ADR-006 - Trip requirements feed the same charging planner
 
