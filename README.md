@@ -1,5 +1,11 @@
 # BitCruise
 
+[![Tests](https://github.com/Peasniped/BitCruise/actions/workflows/tests.yml/badge.svg)](https://github.com/Peasniped/BitCruise/actions/workflows/tests.yml)
+[![Hassfest](https://github.com/Peasniped/BitCruise/actions/workflows/hassfest.yml/badge.svg)](https://github.com/Peasniped/BitCruise/actions/workflows/hassfest.yml)
+[![HACS](https://github.com/Peasniped/BitCruise/actions/workflows/hacs.yml/badge.svg)](https://github.com/Peasniped/BitCruise/actions/workflows/hacs.yml)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.8.0%2B-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](LICENSE)
+
 > [!WARNING]
 > **Early development. Not ready for use.**
 >
@@ -19,24 +25,6 @@ the Home Assistant entities and actions you selected.
 It does **not** talk to any vehicle, charger, or price API directly. Everything goes
 through Home Assistant, so BitCruise is not tied to any particular brand of car,
 charger, or electricity provider.
-
-## Status
-
-| Phase | Status |
-| --- | --- |
-| 0 — Repository bootstrap | Loads and unloads on HA 2026.8.1 |
-| 1 — Pure charging planner | Not started |
-| 2 — HA source binding and sensors | Not started |
-| 3 — Price adapter (Energi Data Service / Carnot) | Not started |
-| 4 — Proposal / approval state machine | Not started |
-| 5 — Notifications | Not started |
-| 6 — Charger execution | Not started |
-| 7 — Restart recovery | Not started |
-| 8 — First HACS release | Not started |
-| 9–15 — Calendar, trips, urgency, multi-vehicle | Future |
-
-See [PLAN.md](PLAN.md) for the full delivery plan and [TODO.md](TODO.md) for the
-current backlog.
 
 ## Requirements
 

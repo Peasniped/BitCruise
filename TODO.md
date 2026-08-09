@@ -52,8 +52,10 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [x] Add `.github/workflows/hassfest.yml`.
 - [x] Decide and document the minimum supported Home Assistant version.
 - [x] Document local VS Code development setup in the README.
-- [ ] Push to GitHub so the three CI workflows actually execute. **Not yet verified — they have never run.**
-- [ ] Run `tests/ha/test_config_flow.py` on Linux/macOS or CI. **Not yet verified — cannot execute on Windows.**
+- [x] Push to GitHub so the three CI workflows actually execute. Pushed to `Peasniped/BitCruise` at `a28ff7b`.
+- [x] Run `tests/ha/test_config_flow.py` on Linux/macOS or CI. Passed in CI on Python 3.14 — first execution; they cannot run on Windows.
+- [x] Hassfest validation passes.
+- [ ] **HACS validation fails: repository topics are not set.** Add topics on GitHub (Settings, or the gear beside "About"), e.g. `home-assistant`, `homeassistant`, `hacs`, `custom-component`, `integration`, `ev-charging`, `home-automation`. Then re-run the HACS workflow. Repo description, issues, and `hacs.json` already satisfy their checks.
 - [x] Verify: config entry loads and unloads in a real HA instance. Confirmed on HA OS 2026.8.1 — integration discoverable, config flow completes, second entry rejected, entry deletes cleanly with no restart and no log output. This test is what caught the `integration_type` bug.
 - [ ] Submit `icon.png` to `home-assistant/brands` before the first public release, then drop `ignore: brands` from `.github/workflows/hacs.yml`.
 - [ ] Typed `ConfigEntry.runtime_data` — deferred to Phase 2, when there is runtime state worth storing.
