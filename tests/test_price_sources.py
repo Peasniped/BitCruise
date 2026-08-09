@@ -241,3 +241,62 @@ class TestBadData:
     def test_non_list_attribute_is_ignored(self) -> None:
         result = parse_price_attributes({"unit": "kWh", "raw_today": "nonsense"})
         assert not result.is_usable
+
+
+class TestTomorrowValid:
+    """Tomorrow's prices count as settled only when the source says so."""
+
+    TODAY = [{"hour": "2026-08-09T00:00:00+02:00", "price": 1.0}]
+    TOMORROW = [{"hour": "2026-08-10T00:00:00+02:00", "price": 2.0}]
+    FORECAST = [{"hour": "2026-08-10T00:00:00+02:00", "price": 9.0}]
+
+    def _attrs(self, **extra: Any) -> dict[str, Any]:
+        return {
+            "unit": "kWh",
+            "raw_today": list(self.TODAY),
+            "raw_tomorrow": list(self.TOMORROW),
+            **extra,
+        }
+
+    def test_true_keeps_tomorrow(self) -> None:
+        data = parse_price_attributes(self._attrs(tomorrow_valid=True))
+        assert len(data.intervals) == 2
+        assert data.tomorrow_valid is True
+        assert data.problems == ()
+
+    def test_absent_keeps_tomorrow(self) -> None:
+        """A source that never states it must not be treated as denying it."""
+        data = parse_price_attributes(self._attrs())
+        assert len(data.intervals) == 2
+        assert data.tomorrow_valid is None
+
+    def test_false_discards_stale_tomorrow(self) -> None:
+        """Leftover entries are the previous day's, not a published curve."""
+        data = parse_price_attributes(self._attrs(tomorrow_valid=False))
+        assert len(data.intervals) == 1
+        assert data.intervals[0].start == hour("2026-08-09T00:00:00+02:00")
+        assert data.tomorrow_valid is False
+        assert any("tomorrow" in problem for problem in data.problems)
+
+    def test_false_falls_back_to_the_forecast(self) -> None:
+        """Dropping unsettled prices must not blank the period entirely."""
+        data = parse_price_attributes(
+            self._attrs(tomorrow_valid=False, forecast=list(self.FORECAST))
+        )
+        assert len(data.intervals) == 2
+        tomorrow = data.intervals[1]
+        assert tomorrow.quality is PriceQuality.FORECAST
+        assert tomorrow.price_per_kwh == Decimal("9.0")
+
+    def test_false_with_empty_tomorrow_is_silent(self) -> None:
+        """The normal state for most of the day is not a problem worth reporting."""
+        data = parse_price_attributes(
+            {"unit": "kWh", "raw_today": list(self.TODAY), "raw_tomorrow": []}
+            | {"tomorrow_valid": False}
+        )
+        assert data.problems == ()
+
+    def test_reported_even_when_the_unit_is_refused(self) -> None:
+        data = parse_price_attributes(self._attrs(unit="furlongs", tomorrow_valid=True))
+        assert not data.is_usable
+        assert data.tomorrow_valid is True

@@ -199,3 +199,33 @@ async def test_the_cooldown_releases_a_trailing_recomputation(
         await hass.async_block_till_done()
 
         assert entry.runtime_data.data.current_soc_pct == 55.0
+
+
+async def test_status_reports_what_the_price_adapter_parsed(
+    hass: HomeAssistant,
+) -> None:
+    """Correctness of the parse must be confirmable by reading a sensor."""
+    with freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH)):
+        await _setup(hass)
+
+        attributes = hass.states.get("sensor.bitcruise_plan_status").attributes
+        assert attributes["price_source"] == PRICE
+        assert attributes["price_intervals"] == 72
+        assert attributes["price_horizon_quality"] == "mixed"
+        assert attributes["price_tomorrow_valid"] is True
+
+
+async def test_unpublished_tomorrow_prices_are_not_planned_on(
+    hass: HomeAssistant,
+) -> None:
+    """Stale entries left in raw_tomorrow are dropped, and the drop is visible."""
+    attributes = _price_attributes()
+    attributes["tomorrow_valid"] = False
+
+    with freeze_time(datetime(2026, 8, 9, 18, 0, tzinfo=CPH)):
+        await _setup(hass, price_attributes=attributes)
+
+        status = hass.states.get("sensor.bitcruise_plan_status").attributes
+        assert status["price_tomorrow_valid"] is False
+        assert status["price_intervals"] == 48
+        assert any("tomorrow" in problem for problem in status["problems"])

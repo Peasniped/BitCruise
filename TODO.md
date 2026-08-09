@@ -110,7 +110,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped (say why)
 - [x] equal-price deterministic tie;
 - [x] window crosses midnight;
 - [x] mixed actual + forecast horizon;
-- [ ] actual replaces forecast — belongs to the price adapter, moved to Phase 3. The planner only sees already-merged intervals.
+- [x] actual replaces forecast — belongs to the price adapter, moved to Phase 3 and covered by `tests/test_price_sources.py::TestActualSupersedesForecast`. The planner only sees already-merged intervals.
 - [x] price gap / missing interval;
 - [x] insufficient price horizon;
 - [x] impossible deadline;
@@ -179,7 +179,7 @@ that reads an entity. Highlights that change the plan:
 - [x] Charging: ready-by time.
 - [x] Charging: optional not-before time.
 - [x] Prices: electricity price entity, filtered on `device_class: monetary`. Not yet read — Phase 3.
-- [ ] Prices: adapter selection (`auto` / Energi Data Service) — Phase 3, when there is more than one adapter to choose between.
+- [-] Prices: adapter selection (`auto` / Energi Data Service). Dropped: detection tries each known convention against the selected entity and refuses loudly when none match, so there is nothing left for the user to choose. `DESIGN.md` §12 is explicit that attribute names are never a configuration question.
 - [x] Options flow for the adjustable settings; the entry reloads so changes apply immediately.
 - [x] Store bindings in `ConfigEntry.data`, behavior in `ConfigEntry.options`.
 - [x] Typed `ConfigEntry.runtime_data` via `BitCruiseConfigEntry`.
@@ -236,24 +236,40 @@ reads `hass.states` and passes raw values in.
 
 ## Phase 3 — Energi Data Service + Carnot price adapter
 
-- [ ] Build fixtures from the Energi Data Service integration's published attribute schema — do **not** ask the user to paste their entity state. The user picks an entity; adapters work out how to read it (`DESIGN.md` §12).
-- [ ] Normalize the `unit` attribute (`MWh` / `kWh` / `Wh`). EDS can report per MWh, which would make every cost wrong by 1000×.
-- [ ] Carry `currency` through to the cost sensor rather than assuming DKK.
-- [ ] Auto-detect across known conventions; fail loudly with an actionable error when none match.
-- [ ] Expose what was parsed (source, interval count, actual/forecast mix) so correctness is confirmed by reading a sensor.
-- [ ] Parse today's actual prices.
-- [ ] Parse tomorrow's actual prices.
-- [ ] Parse Carnot forecast intervals.
-- [ ] Determine when tomorrow's actual prices are valid.
-- [ ] Merge sources by interval timestamp.
-- [ ] Prefer actual over forecast for identical intervals.
-- [ ] Mark each interval `ACTUAL` or `FORECAST`.
-- [ ] Expose plan price quality: actual / forecast / mixed.
-- [ ] Detect malformed or insufficient data.
-- [ ] Sort intervals, reject unresolved overlaps, detect gaps, preserve timezone.
-- [ ] Replanning triggers for SoC, target, capacity/power, ready-by, connection, prices, forecast, tomorrow-valid.
-- [ ] Debounce rapid changes.
-- [ ] Tests against the frozen fixtures.
+### Price adapter (`price_sources.py`)
+
+The module is pure — no Home Assistant import — so it runs on Windows. The coordinator
+reads the entity's attributes and passes the raw mapping in.
+
+- [x] Build fixtures from the Energi Data Service integration's published attribute schema — do **not** ask the user to paste their entity state. The user picks an entity; adapters work out how to read it (`DESIGN.md` §12).
+- [x] Normalize the `unit` attribute (`MWh` / `kWh` / `Wh`). EDS can report per MWh, which would make every cost wrong by 1000×.
+- [x] Carry `currency` through to the cost sensor rather than assuming DKK.
+- [x] Auto-detect across known conventions; fail loudly with an actionable error when none match.
+- [x] Expose what was parsed (source, interval count, actual/forecast mix) so correctness is confirmed by reading a sensor. On `sensor.plan_status` as `price_source`, `price_intervals`, `price_horizon_quality`, `price_tomorrow_valid`.
+- [x] Parse today's actual prices.
+- [x] Parse tomorrow's actual prices.
+- [x] Parse Carnot forecast intervals.
+- [x] Determine when tomorrow's actual prices are valid. `tomorrow_valid: false` discards anything sitting in `raw_tomorrow` — it is the previous day's data, and the forecast covers the period instead. An absent attribute stays `None`; a source that never states it must not be read as denying it.
+- [x] Merge sources by interval timestamp.
+- [x] Prefer actual over forecast for identical intervals.
+- [x] Mark each interval `ACTUAL` or `FORECAST`.
+- [x] Expose plan price quality: actual / forecast / mixed.
+- [x] Detect malformed or insufficient data.
+- [x] Sort intervals, reject unresolved overlaps, detect gaps, preserve timezone.
+- [x] Tests against the frozen fixtures.
+
+### Replanning triggers
+
+- [x] Triggers for SoC, target, capacity/power, ready-by, connection, prices, forecast, tomorrow-valid. Source entities are covered by state change tracking, which fires on attribute-only changes too — that is what carries a refreshed price curve and the `tomorrow_valid` flip. Capacity, power and ready-by live in options, and an options change reloads the entry.
+- [x] Wake up when the clock crosses a boundary. Time passing is the one trigger that is not an entity event: crossing ready-by moves the deadline to the next day, and a price interval ending drops it out of the horizon. A single `async_track_point_in_time` is scheduled for the earliest such instant and rescheduled after each evaluation — no ticking, no polling.
+- [x] Debounce rapid changes. `immediate=True` with a 5 s cooldown, so a waking car that updates SoC, plug and availability at once applies the first change straight away and coalesces the rest into one follow-up.
+
+### Tests
+
+15 more tests for this phase: 6 pure (`tomorrow_valid` handling), 9 requiring Home
+Assistant (ready-by rollover with no entity change, boundary selection including the
+DST fall-back hour, burst coalescing, the trailing recomputation, parse provenance,
+unpublished tomorrow prices).
 
 ## Phase 4 — Proposal/approval state machine
 

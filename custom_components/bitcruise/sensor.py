@@ -218,6 +218,8 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             return None
         data = self.coordinator.data
         plan = data.plan
+        prices = data.price_data
+        horizon_quality = prices.quality if prices else None
         return {
             "problems": list(data.problems),
             "plug_status": data.plug_status.value,
@@ -226,7 +228,13 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             "target_soc_pct": data.target_soc_pct,
             "usable_capacity_kwh": data.usable_capacity_kwh,
             "ready_by": data.ready_by.isoformat() if data.ready_by else None,
+            # What the price adapter made of the selected entity. A misread
+            # curve produces a confident, plausible, wrong schedule, so the
+            # parse is reported rather than assumed (DESIGN.md 12).
             "price_intervals": data.price_interval_count,
+            "price_source": prices.source if prices else None,
+            "price_horizon_quality": horizon_quality.value if horizon_quality else None,
+            "price_tomorrow_valid": prices.tomorrow_valid if prices else None,
             "plan_id": plan.id if plan else None,
             "can_meet_target": plan.can_meet_target if plan else None,
             "shortfall_kwh": plan.shortfall_kwh if plan else None,

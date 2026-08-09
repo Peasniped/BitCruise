@@ -29,6 +29,9 @@ from .models import (
 _ACTUAL_KEYS: tuple[str, ...] = ("raw_today", "raw_tomorrow")
 _FORECAST_KEYS: tuple[str, ...] = ("forecast",)
 
+# Attributes whose contents are only settled once ``tomorrow_valid`` says so.
+_TOMORROW_KEYS: frozenset[str] = frozenset({"raw_tomorrow"})
+
 # Per-entry key names. Energi Data Service uses hour/price; Nordpool-style
 # sensors use start/end/value. Both are accepted rather than guessed at.
 _START_KEYS: tuple[str, ...] = ("hour", "start", "time", "from", "datetime")
@@ -53,6 +56,12 @@ class PriceData:
     currency: str | None
     source: str
     problems: tuple[str, ...] = ()
+    tomorrow_valid: bool | None = None
+    """Whether tomorrow's settled prices have been published.
+
+    ``None`` when the source says nothing either way, which is different from a
+    stated ``False`` and must not be reported as one.
+    """
 
     @property
     def quality(self) -> PlanPriceQuality | None:
@@ -78,6 +87,13 @@ def _first_key(entry: Mapping[str, Any], candidates: Sequence[str]) -> object | 
         if key in entry:
             return entry[key]
     return None
+
+
+def _count_entries(entries: object) -> int:
+    """Count the entries in an attribute list, or zero if it isn't one."""
+    if not isinstance(entries, Sequence) or isinstance(entries, str | bytes):
+        return 0
+    return len(entries)
 
 
 def _parse_moment(value: object) -> datetime | None:
@@ -195,6 +211,11 @@ def parse_price_attributes(
     """
     problems: list[str] = []
 
+    raw_tomorrow_valid = attributes.get("tomorrow_valid")
+    tomorrow_valid = (
+        bool(raw_tomorrow_valid) if raw_tomorrow_valid is not None else None
+    )
+
     multiplier = _price_multiplier(
         attributes.get("unit"), attributes.get("use_cent", False)
     )
@@ -204,10 +225,20 @@ def parse_price_attributes(
             currency=attributes.get("currency"),
             source=source,
             problems=(f"unsupported price unit {attributes.get('unit')!r}",),
+            tomorrow_valid=tomorrow_valid,
         )
 
     collected: list[PriceInterval] = []
     for key in _ACTUAL_KEYS:
+        if tomorrow_valid is False and key in _TOMORROW_KEYS:
+            # Energi Data Service publishes tomorrow's settled prices in the
+            # early afternoon and only then sets tomorrow_valid. Anything left
+            # in the attribute before that is the previous day's data, so it is
+            # discarded and the forecast covers the period instead. Treating it
+            # as settled would plan a window on prices that never applied.
+            if _count_entries(attributes.get(key)):
+                problems.append(f"{key} ignored: tomorrow's prices are not published")
+            continue
         collected.extend(
             _entry_intervals(
                 attributes.get(key), PriceQuality.ACTUAL, multiplier, problems
@@ -231,4 +262,5 @@ def parse_price_attributes(
         currency=attributes.get("currency"),
         source=source,
         problems=tuple(problems),
+        tomorrow_valid=tomorrow_valid,
     )
