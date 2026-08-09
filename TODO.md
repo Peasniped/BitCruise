@@ -262,14 +262,23 @@ reads the entity's attributes and passes the raw mapping in.
 
 - [x] Triggers for SoC, target, capacity/power, ready-by, connection, prices, forecast, tomorrow-valid. Source entities are covered by state change tracking, which fires on attribute-only changes too — that is what carries a refreshed price curve and the `tomorrow_valid` flip. Capacity, power and ready-by live in options, and an options change reloads the entry.
 - [x] Wake up when the clock crosses a boundary. Time passing is the one trigger that is not an entity event: crossing ready-by moves the deadline to the next day, and a price interval ending drops it out of the horizon. A single `async_track_point_in_time` is scheduled for the earliest such instant and rescheduled after each evaluation — no ticking, no polling.
-- [x] Debounce rapid changes. `immediate=True` with a 5 s cooldown, so a waking car that updates SoC, plug and availability at once applies the first change straight away and coalesces the rest into one follow-up.
+- [-] Debounce rapid changes. **Tried, reverted.** A `Debouncer` with a 5 s cooldown made a state change land at once and coalesce the rest into a delayed follow-up. On a Home Assistant restart every source entity appears in one burst, so the first evaluation ran against a half-populated state machine and the corrected one arrived seconds later — the integration sat in `error` with "entity not found" for entities that plainly existed. Recomputation is a pure function over `hass.states` and costs nothing, so there is nothing to protect. `DESIGN.md` §6 wants debouncing to stop *notification* spam; that belongs in Phase 5, next to the notifications, and is tracked there.
+- [x] Register state listeners **before** the first evaluation. Source integrations are often still starting, and an entity appearing in the gap would otherwise go unnoticed until something else changed.
+- [x] Distinguish a missing price entity from an unavailable one. Both reported "price entity unavailable", which sent you looking at the wrong thing: a missing entity id means the providing integration is not loaded or the wrong entity was picked, and an unavailable one means it is loaded but has no value yet.
 
 ### Tests
 
-15 more tests for this phase: 6 pure (`tomorrow_valid` handling), 9 requiring Home
-Assistant (ready-by rollover with no entity change, boundary selection including the
-DST fall-back hour, burst coalescing, the trailing recomputation, parse provenance,
-unpublished tomorrow prices).
+Pure tests for `tomorrow_valid` handling, plus Home Assistant tests for the ready-by
+rollover with no entity change, boundary selection including the DST fall-back hour,
+a burst of source changes all landing, sources appearing after setup, parse
+provenance, and unpublished tomorrow prices.
+
+### Found on the real installation
+
+Both of these passed every test and still broke the integration on real hardware.
+
+- [x] **Decimal attributes took `sensor.plan_status` offline.** `window_mean_price` and `cheapest_price_in_horizon` were exposed as `Decimal`. Home Assistant serializes states with orjson, which refuses `Decimal`, so the state never reached the frontend and the entity showed as `unavailable` with nothing on it to say why. It only appeared once a plan existed — with no prices both attributes are `None` and everything looks healthy. Currency is `Decimal` everywhere internally by design, so this is a standing hazard: `tests/ha/test_serialization.py` now serializes every BitCruise state the way HA does and names the offending entity and attribute.
+- [x] Reading attributes in-process, which is what every other test does, cannot catch a serialization fault. Any new attribute needs the serialization guard, not just an assertion on its value.
 
 ## Phase 4 — Proposal/approval state machine
 
@@ -309,10 +318,37 @@ a notification action in Phase 5 reuses it rather than reimplementing it.
 - [x] **The plan id was a nonce.** `_plan_id` mixed `data.now` into the hash, so every recomputation produced a "new" plan. The rejection marker would never have matched and a turned-down window would have been re-proposed within seconds. Now derived from window and energy only, with a regression test in `TestDeterminism`.
 - [x] Added `PlanSource.SCHEDULE`. Since Phase 3 the clock crossing a boundary is a genuine cause of a replan, and none of the existing reasons described it honestly. `DESIGN.md` §11 lists the reasons as "initial, price_update, soc_change, etc.".
 
+## Presentation and approval UX
+
+Not a numbered phase; a pass over what the integration *looks like*, sitting ahead of
+Phase 5 because a notification should announce a coherent state rather than one the
+user has to assemble from eight entities. Raised after the first real session on the
+reference installation: the integration was working correctly and still felt poor to
+use.
+
+### Too many entities, no overview
+
+- [ ] Group the working-out under `EntityCategory.DIAGNOSTIC` — `battery_energy_deficit`, `grid_energy_required`, `required_charge_duration`. They explain a number rather than answering a question, and HA already has a place for that. Keep them enabled; this is about where they appear, not whether they exist.
+- [ ] `sensor.bitcruise_summary`: one readable sentence, e.g. "Charging 02:00–06:00 tonight, 33.5 kWh for 53.83 DKK". Mind the 255-character state limit, and keep it translatable — it is a user-facing string, not a log line.
+- [ ] Decide what the summary says in each state: idle, needs charge but no window, awaiting approval, approved, error. The error case should name the first problem rather than saying "error".
+- [ ] Display precision across every sensor. `estimated_cost` reads `53.833372711111111884` and `required_charge_duration` reads `3.04999595959596`. Currency is `Decimal` internally on purpose, but that precision has done its job before a person sees it.
+- [ ] Review whether `proposed_start` / `proposed_end` earn their place, given they read `unknown` whenever nothing is pending — which under `ask_on_change` is nearly always.
+
+### The approval flow itself
+
+- [ ] Make `button.accept_plan` and `button.reject_plan` unavailable when no proposal is pending. **This reverses a decision made in Phase 4**, where they were left always-available so a notification action could not fail. That reasoning was backwards: a notification is only sent while a proposal is live, and a stale tap failing visibly beats it silently doing nothing. Greyed-out buttons are also the clearest available signal that nothing wants your input.
+- [ ] Re-check that Phase 5's notification actions still behave sensibly once the buttons can be unavailable — that is the constraint the original decision was protecting.
+- [ ] Consider surfacing *why* approval is being asked for in the proposal itself, not only as a `plan_status` attribute.
+
+### Later
+
+- [ ] Custom Lovelace card. Still unordered in the backlog below; the work above should make it less necessary rather than more.
+
 ## Phase 5 — Notifications
 
 - [ ] Optional notification target/action in config.
 - [ ] Warning offset setting, default 15 minutes.
+- [ ] Debounce notifications, not recomputation (`DESIGN.md` §6). Rate-limit at the point a message would be sent; a coordinator-level debouncer was tried in Phase 3 and made restart recovery worse for no gain.
 - [ ] Initial proposal notification.
 - [ ] Actual-prices-published / move-plan notification.
 - [ ] Car-not-connected notification before start.
