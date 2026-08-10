@@ -108,13 +108,19 @@ summary. Remaining:
 
 ## 2. Phase 6b — Charger execution, acting
 
-Fires the actions. The restart and idempotency items below came from Phase 7 and are
-deliberately built here rather than deferred: they are part of writing a start flow,
-not a hardening pass afterwards.
+Fires the actions. 6a already decides *what* to do and skips actions that state
+information proves unnecessary — `execution.next_action` returns one action at a time
+and is re-asked every evaluation. What is left is carrying it out and coping when it
+does not work.
 
-- [ ] Start flow with all preconditions in `DESIGN.md` §9.
-- [ ] Skip actions that state information proves unnecessary.
-- [ ] Verify resulting charger state when a status sensor exists.
+The restart and idempotency items below came from Phase 7 and are deliberately built
+here rather than deferred: they are part of writing a start flow, not a hardening pass
+afterwards.
+
+- [ ] Press the decided action: `button.press` or `switch.turn_on`/`turn_off` depending on the selected entity's domain. Nothing charger-specific.
+- [ ] Refuse to act on an `unavailable` control rather than calling it and failing — that state means "cannot act yet" while unplugged.
+- [ ] Verify the resulting charger state when a status sensor exists, and report when the charger did not do what it was told.
+- [ ] Decide how long to wait before re-deciding, so a charger that takes a few seconds to change state is not pressed twice.
 - [ ] End flow: stop/pause if configured, mark completed.
 - [ ] Late connection: start immediately if enough window remains.
 - [ ] Late connection: recalculate achievable SoC; do not extend past approved end.
