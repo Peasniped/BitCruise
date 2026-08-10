@@ -583,16 +583,22 @@ Approval is part of the integration's domain logic, not an external YAML automat
 
 Control entities:
 
-- `button.accept_plan`
-- `button.reject_plan`
+- `button.accept_plan` - unavailable unless a proposal is pending
+- `button.reject_plan` - unavailable unless a proposal is pending
 - `button.recalculate_plan`
 - `switch.smart_charging`
+- `select.approval_policy` - `always_ask`, `ask_on_change`, `automatic`
 
-Possible future entity:
+The policy is an entity, not an options-flow setting: it is the one setting a
+household changes with the seasons, and being asked is only worth it while the
+answer might be "no". The entity is the sole source of truth and is persisted
+with the approval record. An installation configured before it existed keeps the
+policy from its config entry the first time it loads.
 
-- `select.approval_policy` with values such as `always_ask`, `ask_on_change`, `automatic`.
-
-For V1, default to `always_ask` or `ask_on_change` rather than fully automatic behavior.
+`automatic` never asks: a materially moved window replaces the approved plan
+directly. It is the one relaxation of ADR-003, and it is not silent — the user
+chooses it, and the plan status attributes still report every move. Default
+stays `ask_on_change`.
 
 An approved plan must be persisted so an HA restart does not accidentally lose or replace it.
 
@@ -842,12 +848,16 @@ Do not create dozens of entities for internal details. Diagnostic/noisy entities
 
 Sensors:
 
+- `Summary` - one sentence describing the current state, so the integration can be
+  read at a glance instead of assembled from the entities below. Composed in code
+  rather than translated: Home Assistant translates enumerated states, not
+  sentences with numbers in them.
 - `Charging deficit` - `%`
-- `Battery energy deficit` - `kWh`
-- `Grid energy required` - `kWh`
-- `Required charge duration` - hours/minutes
-- `Proposed start`
-- `Proposed end`
+- `Battery energy deficit` - `kWh` (diagnostic)
+- `Grid energy required` - `kWh` (diagnostic)
+- `Required charge duration` - hours/minutes (diagnostic)
+- `Proposed start` (diagnostic)
+- `Proposed end` (diagnostic)
 - `Approved start`
 - `Approved end`
 - `Estimated charging cost`
@@ -865,9 +875,10 @@ Binary sensors:
 Controls:
 
 - `Smart charging` switch
-- `Accept plan` button
-- `Reject plan` button
-- `Recalculate plan` button
+- `When to ask before charging` select (`select.approval_policy`)
+- `Accept plan` button - unavailable unless a proposal is pending
+- `Reject plan` button - unavailable unless a proposal is pending
+- `Recalculate plan` button - always available; the way back from a rejection
 - `Charging power` number if not derived from another entity
 - optional `Target SoC` number only when the user chooses an integration-owned target
 
@@ -1577,6 +1588,8 @@ the config flow.
 **Decision:** a recalculation creates a proposal rather than silently mutating the approved schedule.
 
 **Why:** household intent beats small price optimization and avoids surprising charger behavior.
+
+**Amended:** `select.approval_policy` set to `automatic` lets a recalculation replace the approved plan directly. The rule this ADR protects is that BitCruise never changes an approved plan *without the user's say-so* — and choosing `automatic` is that say-so, given once instead of nightly. It is not the default, it is reversible from the dashboard, and every move stays visible in the plan status attributes. Approval that is never withheld is a button, not a safeguard.
 
 ### ADR-004 - Calendar input uses HA calendar entities first
 

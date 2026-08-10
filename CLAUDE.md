@@ -56,7 +56,7 @@ prefer encoding decisions as tests and docstrings — those survive the document
 9. Do not invent service/action schemas for Volvo, Zaptec, Energi Data Service, Fastmail, HACS, or Home Assistant. Verify against real entities/docs, or make the capability user-configurable.
 10. Do not hard-code the user's personal entity IDs, device names, or notification targets.
 11. Do not commit secrets: app passwords, API tokens, HA URLs, addresses, or personal calendar data. Sanitize all fixtures captured from the live installation.
-12. Never silently alter an approved charging plan (`DESIGN.md` ADR-003).
+12. Never alter an approved charging plan without the user's say-so (`DESIGN.md` ADR-003). Setting `select.approval_policy` to `automatic` *is* that say-so, given once instead of nightly; it is the only path that may replace an approved plan without a prompt.
 13. Never execute charger actions from tests against a live Home Assistant instance.
 14. Prefer backwards-compatible config-entry migrations once a release may be installed.
 15. Treat charging as convenience automation, not a safety-critical guarantee. Surface uncertainty and failure clearly.
@@ -108,6 +108,7 @@ here where they are read every session.
 - **Plan ids must be derived from plan content only.** Mixing the calculation time in makes every recomputation look like a new plan, and the approval machine re-asks about a window the user already answered.
 - **`integration_type: service`, not `helper`.** `helper` files the integration under the Helpers tab, whose UI opens an options flow on click, so an integration without one fails with "Invalid handler specified" (home-assistant/frontend#15044). The calculated nature is carried by `iot_class`. Regression test in `tests/test_manifest.py`.
 - **Do not debounce recomputation.** A coordinator-level debouncer was tried and reverted: on a restart every source entity appears in one burst, so it evaluated the first and deferred the rest, leaving the integration reporting "entity not found" for entities that plainly existed. Recomputation is a pure function over `hass.states` and costs nothing. Debouncing belongs at the point a *notification* would be sent.
+- **`suggested_display_precision` never reaches the state.** Home Assistant writes it into the entity registry for the *frontend* to round with; the state itself keeps whatever the calculation produced, so a template, an automation, or Developer Tools reads `53.833372711111111884`. Rounding happens in `native_value` (`sensor.py`, `_rounded`), using that same precision so state and display cannot disagree.
 - **Energi Data Service already includes tariffs and surcharges.** Never add the `tariffs` attribute to the exposed price — it double-counts and inflates cost by roughly 40%.
 
 ## Decisions that are settled
@@ -119,7 +120,8 @@ Do not reopen these without a reason; they are load-bearing.
 - `single_config_entry: true` for V1. Loosening it later is backwards compatible.
 - Currency is `Decimal`; energy, power and SoC stay `float`. Conversion happens only at the price × energy boundary, so repeated cost addition stays exact.
 - Whole price intervals are allocated, with the slack reported as `over_allocation_kwh`. Cost is charged on the energy expected to be drawn, since the car stops at target rather than running the window out.
-- Approval defaults to `ask_on_change`: the first plan of a cycle is approved automatically, every material move still asks. `always_ask` would need a press every evening, and a missed press means no charging.
+- Approval defaults to `ask_on_change`: the first plan of a cycle is approved automatically, every material move still asks. `always_ask` would need a press every evening, and a missed press means no charging. `automatic` never asks and is a legitimate choice, not a debug mode.
+- The approval policy is `select.approval_policy`, not an options-flow setting, and the entity is the only source of truth. It is persisted with the approval record; a config entry that predates the entity seeds it once.
 
 ## Definition of done
 

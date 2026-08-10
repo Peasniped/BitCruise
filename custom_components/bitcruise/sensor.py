@@ -88,7 +88,27 @@ def _attribute_price(value: Decimal | None) -> float | None:
     return round(float(value), 4)
 
 
+def _rounded(value: SensorValue, digits: int | None) -> SensorValue:
+    """Round a numeric state to the precision it is displayed at.
+
+    ``suggested_display_precision`` only reaches the frontend; the state itself
+    keeps whatever precision the calculation produced, which is how a cost lands
+    on a dashboard as ``53.833372711111111884``. Rounding here makes the state
+    and the display agree, and templates read the same number a person does.
+    """
+    if digits is None or not isinstance(value, (int, float, Decimal)):
+        return value
+    if digits == 0:
+        return round(value)
+    return round(value, digits)
+
+
 SENSORS: tuple[BitCruiseSensorDescription, ...] = (
+    BitCruiseSensorDescription(
+        key="summary",
+        translation_key="summary",
+        value_fn=lambda data: data.summary,
+    ),
     BitCruiseSensorDescription(
         key="charging_deficit",
         translation_key="charging_deficit",
@@ -222,7 +242,8 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
     @property
     def native_value(self) -> SensorValue:
         """Current value, or None when the requirement could not be computed."""
-        return self.entity_description.value_fn(self.coordinator.data)
+        value = self.entity_description.value_fn(self.coordinator.data)
+        return _rounded(value, self.entity_description.suggested_display_precision)
 
     @property
     def native_unit_of_measurement(self) -> str | None:

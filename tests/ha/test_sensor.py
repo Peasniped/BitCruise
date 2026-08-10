@@ -6,7 +6,6 @@ Values mirror the reference installation: an 81.608 kWh battery at 47%, targetin
 
 from typing import Any
 
-import pytest
 from custom_components.bitcruise.const import (
     CONF_AVAILABILITY_ENTITY,
     CONF_CAPACITY_ENTITY,
@@ -70,20 +69,19 @@ async def _setup(hass: HomeAssistant) -> MockConfigEntry:
 
 
 async def test_deficit_sensors(hass: HomeAssistant) -> None:
-    """47% to 90% of 81.608 kWh is 43 points, 35.09 kWh, 39.0 kWh from the grid."""
+    """47% to 90% of 81.608 kWh is 43 points, 35.09 kWh, 39.0 kWh from the grid.
+
+    States are rounded to the precision they are displayed at. Home Assistant
+    only applies ``suggested_display_precision`` in the frontend, so without
+    that the state a template reads is ``35.091440000000004``.
+    """
     _set_sources(hass)
     await _setup(hass)
 
-    assert float(hass.states.get("sensor.bitcruise_charging_deficit").state) == 43.0
-    assert float(
-        hass.states.get("sensor.bitcruise_battery_energy_deficit").state
-    ) == pytest.approx(35.09144, abs=1e-4)
-    assert float(
-        hass.states.get("sensor.bitcruise_grid_energy_required").state
-    ) == pytest.approx(38.9905, abs=1e-3)
-    assert float(
-        hass.states.get("sensor.bitcruise_required_charge_duration").state
-    ) == pytest.approx(3.5446, abs=1e-3)
+    assert hass.states.get("sensor.bitcruise_charging_deficit").state == "43"
+    assert hass.states.get("sensor.bitcruise_battery_energy_deficit").state == "35.1"
+    assert hass.states.get("sensor.bitcruise_grid_energy_required").state == "39.0"
+    assert hass.states.get("sensor.bitcruise_required_charge_duration").state == "3.54"
 
 
 async def test_charge_needed_and_status(hass: HomeAssistant) -> None:
@@ -177,6 +175,37 @@ async def test_bad_reserve_floor_does_not_blank_the_deficit(
     status = hass.states.get("sensor.bitcruise_plan_status")
     assert status.state == "needs_charge"
     assert any("reserve floor" in problem for problem in status.attributes["problems"])
+
+
+async def test_summary_without_prices_says_what_is_missing(
+    hass: HomeAssistant,
+) -> None:
+    """No price entity is configured here, so no window can exist yet."""
+    _set_sources(hass)
+    await _setup(hass)
+
+    assert hass.states.get("sensor.bitcruise_summary").state == (
+        "Needs 39.0 kWh from the grid; waiting for electricity prices."
+    )
+
+
+async def test_summary_at_target_is_not_an_error(hass: HomeAssistant) -> None:
+    _set_sources(hass, soc="90")
+    await _setup(hass)
+
+    assert hass.states.get("sensor.bitcruise_summary").state == (
+        "No charging needed; battery is at 90% of a 90% target."
+    )
+
+
+async def test_summary_names_the_first_problem(hass: HomeAssistant) -> None:
+    """An error state alone sends the user off to attributes to find out what."""
+    _set_sources(hass, soc="unavailable")
+    await _setup(hass)
+
+    summary = hass.states.get("sensor.bitcruise_summary").state
+    assert summary.startswith("Cannot plan: ")
+    assert "car_battery" in summary
 
 
 async def test_plug_connected(hass: HomeAssistant) -> None:

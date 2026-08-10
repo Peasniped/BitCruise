@@ -43,35 +43,11 @@ that reads an entity. Highlights that change the plan:
 - [ ] Real charger capability is **16 A three-phase ≈ 11 kW**, not 10 kW.
 - [ ] Measured consumption exists (`17.9 kWh/100km`) — the trip model can read it.
 
-## Presentation and approval UX
-
-Not a numbered phase; a pass over what the integration *looks like*, sitting ahead of
-Phase 5 because a notification should announce a coherent state rather than one the
-user has to assemble from eight entities. Raised after the first real session on the
-reference installation: the integration was working correctly and still felt poor to
-use.
-
-### Too many entities, no overview
-
-- [ ] Group the working-out under `EntityCategory.DIAGNOSTIC` — `battery_energy_deficit`, `grid_energy_required`, `required_charge_duration`. They explain a number rather than answering a question, and HA already has a place for that. Keep them enabled; this is about where they appear, not whether they exist.
-- [ ] `sensor.bitcruise_summary`: one readable sentence, e.g. "Charging 02:00–06:00 tonight, 33.5 kWh for 53.83 DKK". Mind the 255-character state limit, and keep it translatable — it is a user-facing string, not a log line.
-- [ ] Decide what the summary says in each state: idle, needs charge but no window, awaiting approval, approved, error. The error case should name the first problem rather than saying "error".
-- [ ] Display precision across every sensor. `estimated_cost` reads `53.833372711111111884` and `required_charge_duration` reads `3.04999595959596`. Currency is `Decimal` internally on purpose, but that precision has done its job before a person sees it.
-- [ ] Review whether `proposed_start` / `proposed_end` earn their place, given they read `unknown` whenever nothing is pending — which under `ask_on_change` is nearly always.
-
-### The approval flow itself
-
-- [ ] Make `button.accept_plan` and `button.reject_plan` unavailable when no proposal is pending. **This reverses a decision made in Phase 4**, where they were left always-available so a notification action could not fail. That reasoning was backwards: a notification is only sent while a proposal is live, and a stale tap failing visibly beats it silently doing nothing. Greyed-out buttons are also the clearest available signal that nothing wants your input.
-- [ ] Re-check that Phase 5's notification actions still behave sensibly once the buttons can be unavailable — that is the constraint the original decision was protecting.
-- [ ] Consider surfacing *why* approval is being asked for in the proposal itself, not only as a `plan_status` attribute.
-
-### Later
-
-- [ ] Custom Lovelace card. Still unordered in the backlog below; the work above should make it less necessary rather than more.
-
 ## Phase 5 — Notifications
 
 - [ ] Optional notification target/action in config.
+- [ ] Send `sensor.bitcruise_summary` rather than composing a second set of sentences. If a message needs wording the summary does not have, add it to `summary.py`.
+- [ ] Notification actions must cope with `button.accept_plan` / `button.reject_plan` being unavailable once the question is answered. Home Assistant skips unavailable entities in a service call, so a stale tap is inert rather than an error — decide whether that silence is good enough or whether the action should report back.
 - [ ] Warning offset setting, default 15 minutes.
 - [ ] Debounce notifications, not recomputation (`DESIGN.md` §6). Rate-limit at the point a message would be sent; a coordinator-level debouncer was tried in Phase 3 and made restart recovery worse for no gain.
 - [ ] Initial proposal notification.
@@ -272,20 +248,23 @@ Depends on Phases 1–7, and should follow Phase 13. See `DESIGN.md` §18 and AD
 - [ ] Split charging across non-contiguous cheapest intervals.
 - [ ] Price ceiling / "never charge above X unless required".
 - [ ] Negative-price preference.
-- [ ] Solar forecast / surplus charging.
+- [ ] Vacation / away mode.
+
+- [ ] Custom Lovelace card. The summary sentence should make this less necessary, not more.
+- [ ] Translate `sensor.bitcruise_summary`. Home Assistant translates enumerated entity states, not composed ones, so the sentence is English-only. `summary.py` keeps the wording in one place; the likely route is `async_get_translations` over a custom category, which needs checking against hassfest first.
+- [ ] Learned wall-to-battery efficiency.
+- [ ] Historical actual charging power learning.
+- [ ] Completion detection from SoC target rather than schedule end.
+- [ ] Charger session energy reconciliation.
+
 - [ ] Dynamic charger current based on house load.
+
+### Not as important
+
+- [ ] Calendar UI helpers: a way to create a car booking without hand-typing the `distance_km: / return:` block into an event description (`DESIGN.md` §17). An action, or a blueprint, that writes a correctly-formed event.
+- [ ] Route provider adapter: derive `distance_km` from the booking's Location instead of the user entering it, via an optional geocoding/routing service (`DESIGN.md` §17, "Later, add optional location/geocoding/routing adapters").
+
+- [ ] Solar forecast / surplus charging.
 - [ ] Multiple EVs sharing one connection limit.
 - [ ] Multiple chargers.
-- [ ] Historical actual charging power learning.
-- [ ] Learned wall-to-battery efficiency.
-- [ ] Charger session energy reconciliation.
-- [ ] Completion detection from SoC target rather than schedule end.
-- [ ] Configurable tariff/tax components.
-- [ ] Custom Lovelace card.
-- [ ] Calendar UI helpers.
-- [ ] Route provider adapter.
-- [ ] DC fast-charge stop planning.
-- [ ] Household priority rules.
-- [ ] Vacation / away mode.
-- [ ] `select.approval_policy` entity (`always_ask`, `ask_on_change`, `automatic`).
 

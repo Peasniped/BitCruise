@@ -18,6 +18,7 @@ from custom_components.bitcruise.models import (
 from custom_components.bitcruise.plan_state import (
     PlanInputs,
     PlanRecord,
+    StoredState,
     accept,
     clear_rejection,
     price_fingerprint,
@@ -244,6 +245,63 @@ class TestSmartChargingOff:
         assert record.approved is None
 
 
+class TestAutomaticPolicy:
+    """Never ask. The one deliberate relaxation of ADR-003, chosen by the user."""
+
+    AUTOMATIC = ApprovalPolicy.AUTOMATIC
+
+    def test_a_first_plan_is_approved_without_asking(self) -> None:
+        record = fold(PlanRecord(), plan_at(9), policy=self.AUTOMATIC)
+        assert record.approved is not None
+        assert record.proposal is None
+
+    def test_a_moved_window_replaces_the_approved_plan(self) -> None:
+        """Under any other policy this stages a proposal and waits."""
+        approved = fold(PlanRecord(), plan_at(9), policy=self.AUTOMATIC)
+        moved = plan_at(3)
+
+        record = fold(approved, moved, policy=self.AUTOMATIC)
+
+        assert record.approved.id == moved.id
+        assert record.proposal is None
+        assert record.requires_approval is False
+
+    def test_an_unchanged_window_is_left_alone(self) -> None:
+        approved = fold(PlanRecord(), plan_at(9), policy=self.AUTOMATIC)
+        record = fold(approved, plan_at(9), policy=self.AUTOMATIC)
+        assert record == approved
+
+    def test_a_rejection_from_another_policy_is_ignored(self) -> None:
+        """A stale rejection would suppress the window with nothing to explain it."""
+        rejected = reject(fold(PlanRecord(), plan_at(9)))
+        assert rejected.rejected_plan_id is not None
+
+        record = fold(rejected, plan_at(9), policy=self.AUTOMATIC)
+
+        assert record.approved is not None
+        assert record.approved.id == rejected.rejected_plan_id
+
+    def test_a_completed_window_is_still_not_re_approved(self) -> None:
+        """Last night's finished window is wrong under every policy."""
+        approved = fold(PlanRecord(), plan_at(9), policy=self.AUTOMATIC)
+        expired = fold(approved, None, policy=self.AUTOMATIC, now=at(23))
+        assert expired.completed_plan_id is not None
+
+        record = fold(expired, plan_at(9), policy=self.AUTOMATIC, now=at(23))
+
+        assert record.approved is None
+
+    def test_switching_to_automatic_answers_a_pending_question(self) -> None:
+        """A proposal nothing will ever answer must not sit there forever."""
+        pending = fold(settled(), plan_at(3))
+        assert pending.requires_approval is True
+
+        record = fold(pending, plan_at(3), policy=self.AUTOMATIC)
+
+        assert record.requires_approval is False
+        assert record.approved.id == plan_at(3).id
+
+
 class TestWindowsEquivalent:
     """What counts as the same window."""
 
@@ -337,49 +395,65 @@ class TestPersistence:
 
     def test_round_trip_preserves_an_approved_plan(self) -> None:
         approved = settled()
-        restored, smart = stored_state_from_dict(
-            stored_state_to_dict(approved, smart_charging=True)
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(record=approved))
         )
 
-        assert smart is True
-        assert restored.approved is not None
-        assert restored.approved.id == approved.approved.id
-        assert restored.approved.start == approved.approved.start
-        assert restored.approved.end == approved.approved.end
+        assert restored.smart_charging is True
+        assert restored.record.approved is not None
+        assert restored.record.approved.id == approved.approved.id
+        assert restored.record.approved.start == approved.approved.start
+        assert restored.record.approved.end == approved.approved.end
 
     def test_round_trip_preserves_cost_exactly(self) -> None:
         """Cost is Decimal; a float round trip would quietly lose precision."""
         approved = settled()
-        restored, _ = stored_state_from_dict(
-            stored_state_to_dict(approved, smart_charging=True)
-        )
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(record=approved))
+        ).record
         assert restored.approved.estimated_cost == approved.approved.estimated_cost
         assert isinstance(restored.approved.estimated_cost, Decimal)
 
     def test_round_trip_preserves_a_pending_proposal(self) -> None:
         pending = fold(PlanRecord(), plan_at(9), reason=PlanSource.SOC_CHANGE)
-        restored, _ = stored_state_from_dict(
-            stored_state_to_dict(pending, smart_charging=True)
-        )
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(record=pending))
+        ).record
         assert restored.proposal is not None
         assert restored.proposal_reason is PlanSource.SOC_CHANGE
 
     def test_round_trip_preserves_the_rejection(self) -> None:
         rejected = reject(fold(PlanRecord(), plan_at(9)))
-        restored, _ = stored_state_from_dict(
-            stored_state_to_dict(rejected, smart_charging=True)
-        )
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(record=rejected))
+        ).record
         assert restored.rejected_plan_id == rejected.rejected_plan_id
 
     def test_smart_charging_off_survives(self) -> None:
-        _, smart = stored_state_from_dict(
-            stored_state_to_dict(PlanRecord(), smart_charging=False)
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(smart_charging=False))
         )
-        assert smart is False
+        assert restored.smart_charging is False
+
+    def test_the_approval_policy_survives(self) -> None:
+        """It is a control now, so it cannot be re-read from the config entry."""
+        restored = stored_state_from_dict(
+            stored_state_to_dict(StoredState(approval_policy=ApprovalPolicy.AUTOMATIC))
+        )
+        assert restored.approval_policy is ApprovalPolicy.AUTOMATIC
+
+    def test_a_store_predating_the_policy_reports_none(self) -> None:
+        """None means fall back to the config entry, not use the default."""
+        assert stored_state_from_dict({"smart_charging": True}).approval_policy is None
+
+    def test_an_unknown_policy_reports_none(self) -> None:
+        payload = stored_state_to_dict(StoredState())
+        payload["approval_policy"] = "invented_by_a_later_version"
+        assert stored_state_from_dict(payload).approval_policy is None
 
     def test_the_payload_is_json_safe(self) -> None:
         """HA storage writes JSON; a Decimal or datetime in there would raise."""
-        json.dumps(stored_state_to_dict(settled(), smart_charging=True))
+        json.dumps(stored_state_to_dict(StoredState(record=settled())))
 
     @pytest.mark.parametrize(
         "payload",
@@ -387,23 +461,22 @@ class TestPersistence:
     )
     def test_junk_loads_as_an_empty_record(self, payload: object) -> None:
         """A corrupt store must not stop the integration from loading."""
-        record, smart = stored_state_from_dict(payload)
-        assert record.approved is None
-        assert smart is True
+        restored = stored_state_from_dict(payload)
+        assert restored.record.approved is None
+        assert restored.smart_charging is True
 
     def test_an_unknown_reason_does_not_break_the_proposal(self) -> None:
         payload = stored_state_to_dict(
-            fold(PlanRecord(), plan_at(9)), smart_charging=True
+            StoredState(record=fold(PlanRecord(), plan_at(9)))
         )
         payload["proposal_reason"] = "invented_by_a_later_version"
 
-        record, _ = stored_state_from_dict(payload)
+        record = stored_state_from_dict(payload).record
         assert record.proposal is not None
         assert record.proposal_reason is None
 
     def test_a_reason_without_a_proposal_is_dropped(self) -> None:
-        payload = stored_state_to_dict(PlanRecord(), smart_charging=True)
+        payload = stored_state_to_dict(StoredState())
         payload["proposal_reason"] = PlanSource.MANUAL.value
 
-        record, _ = stored_state_from_dict(payload)
-        assert record.proposal_reason is None
+        assert stored_state_from_dict(payload).record.proposal_reason is None

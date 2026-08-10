@@ -6,16 +6,18 @@ back the record that should now hold. Every rule in DESIGN.md section 7 lives
 here and nowhere else, so approval logic is never duplicated in a button, a
 notification handler, or a service call.
 
-The load-bearing guarantee is ADR-003: an approved plan is never silently
-changed. A replan that moves the window materially is *staged* as a proposal
-and the approved plan keeps running until the user answers.
+The load-bearing guarantee is ADR-003: an approved plan is never changed without
+the user's say-so. A replan that moves the window materially is *staged* as a
+proposal and the approved plan keeps running until the user answers. The one
+exception is ``ApprovalPolicy.AUTOMATIC``, where the say-so was given once by
+choosing the policy rather than nightly by pressing a button.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -124,11 +126,26 @@ def reconcile(
         # ADR-003 forbids.
         return replace(record, proposal=None, proposal_reason=None)
 
-    if candidate.id in (record.rejected_plan_id, record.completed_plan_id):
+    automatic = policy is ApprovalPolicy.AUTOMATIC
+
+    # A rejection is an answer to a question. Under AUTOMATIC no question is
+    # ever asked, so honouring one left over from another policy would suppress
+    # a window forever with nothing on screen to explain it. A *completed* plan
+    # is different: re-approving last night's finished window is wrong under
+    # every policy.
+    stale = (
+        (record.completed_plan_id,)
+        if automatic
+        else (
+            record.rejected_plan_id,
+            record.completed_plan_id,
+        )
+    )
+    if candidate.id in stale:
         return replace(record, proposal=None, proposal_reason=None)
 
     if record.approved is None:
-        if policy is ApprovalPolicy.ASK_ON_CHANGE:
+        if automatic or policy is ApprovalPolicy.ASK_ON_CHANGE:
             return PlanRecord(
                 approved=candidate, completed_plan_id=record.completed_plan_id
             )
@@ -138,6 +155,11 @@ def reconcile(
         # The replan agrees with what is already approved. Drop any staged
         # replacement: whatever moved the window has moved back.
         return replace(record, proposal=None, proposal_reason=None)
+
+    if automatic:
+        return PlanRecord(
+            approved=candidate, completed_plan_id=record.completed_plan_id
+        )
 
     return replace(record, proposal=candidate, proposal_reason=reason)
 
@@ -307,10 +329,29 @@ def _plan_from_dict(data: object) -> ChargePlan | None:
         return None
 
 
-def stored_state_to_dict(record: PlanRecord, *, smart_charging: bool) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class StoredState:
+    """Everything that must outlive a restart.
+
+    ``approval_policy`` is None when the store predates it being a control the
+    user can change at runtime. The coordinator then falls back to the config
+    entry option it used to live in, so an existing installation keeps the
+    policy it was set up with.
+    """
+
+    record: PlanRecord = field(default_factory=PlanRecord)
+    smart_charging: bool = True
+    approval_policy: ApprovalPolicy | None = None
+
+
+def stored_state_to_dict(state: StoredState) -> dict[str, Any]:
     """Serialize everything that must outlive a restart."""
+    record = state.record
     return {
-        "smart_charging": smart_charging,
+        "smart_charging": state.smart_charging,
+        "approval_policy": (
+            state.approval_policy.value if state.approval_policy else None
+        ),
         "approved": _plan_to_dict(record.approved) if record.approved else None,
         "proposal": _plan_to_dict(record.proposal) if record.proposal else None,
         "proposal_reason": (
@@ -321,10 +362,10 @@ def stored_state_to_dict(record: PlanRecord, *, smart_charging: bool) -> dict[st
     }
 
 
-def stored_state_from_dict(data: object) -> tuple[PlanRecord, bool]:
-    """Restore the record and the smart-charging switch, tolerating junk."""
+def stored_state_from_dict(data: object) -> StoredState:
+    """Restore the persisted state, tolerating junk."""
     if not isinstance(data, dict):
-        return PlanRecord(), True
+        return StoredState()
 
     reason: PlanSource | None = None
     raw_reason = data.get("proposal_reason")
@@ -334,6 +375,14 @@ def stored_state_from_dict(data: object) -> tuple[PlanRecord, bool]:
         except ValueError:
             reason = None
 
+    policy: ApprovalPolicy | None = None
+    raw_policy = data.get("approval_policy")
+    if raw_policy is not None:
+        try:
+            policy = ApprovalPolicy(raw_policy)
+        except ValueError:
+            policy = None
+
     proposal = _plan_from_dict(data.get("proposal"))
     record = PlanRecord(
         approved=_plan_from_dict(data.get("approved")),
@@ -342,7 +391,11 @@ def stored_state_from_dict(data: object) -> tuple[PlanRecord, bool]:
         rejected_plan_id=_optional_str(data.get("rejected_plan_id")),
         completed_plan_id=_optional_str(data.get("completed_plan_id")),
     )
-    return record, bool(data.get("smart_charging", True))
+    return StoredState(
+        record=record,
+        smart_charging=bool(data.get("smart_charging", True)),
+        approval_policy=policy,
+    )
 
 
 def _optional_str(value: object) -> str | None:

@@ -58,6 +58,7 @@ from .models import (
 from .plan_state import (
     PlanInputs,
     PlanRecord,
+    StoredState,
     accept,
     clear_rejection,
     price_fingerprint,
@@ -77,6 +78,7 @@ from .source_normalization import (
     normalize_plug_status,
 )
 from .storage import PlanStore
+from .summary import summarize
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,10 +98,14 @@ class BitCruiseData:
     target_soc_pct: float | None
     usable_capacity_kwh: float | None
     ready_by: datetime | None
+    evaluated_at: datetime
     not_before: datetime | None = None
     price_data: PriceData | None = None
     record: PlanRecord = field(default_factory=PlanRecord)
     smart_charging: bool = True
+    recalculated: bool = False
+    """Whether this evaluation is the one a press of Recalculate produced."""
+    approval_policy: ApprovalPolicy = ApprovalPolicy.ASK_ON_CHANGE
 
     @property
     def is_usable(self) -> bool:
@@ -139,6 +145,29 @@ class BitCruiseData:
     def currency(self) -> str | None:
         """Currency the price source quotes, if it states one."""
         return self.price_data.currency if self.price_data else None
+
+    @property
+    def summary(self) -> str:
+        """One sentence describing the current state.
+
+        Assembled here rather than in the sensor so a notification can send the
+        same sentence the dashboard shows, without composing its own.
+        """
+        return summarize(
+            status=self.status,
+            now=self.evaluated_at,
+            plan=self.effective_plan,
+            requirement=self.requirement,
+            problems=self.problems,
+            currency=self.currency,
+            smart_charging=self.smart_charging,
+            is_replacement=self.record.is_replacement,
+            proposal_reason=self.record.proposal_reason,
+            ready_by=self.ready_by,
+            current_soc_pct=self.current_soc_pct,
+            target_soc_pct=self.target_soc_pct,
+            recalculated=self.recalculated,
+        )
 
     @property
     def price_interval_count(self) -> int:
@@ -221,6 +250,7 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._store = PlanStore(hass, entry.entry_id)
         self._record = PlanRecord()
         self._smart_charging = True
+        self._approval_policy = ApprovalPolicy.ASK_ON_CHANGE
         self._previous_inputs: PlanInputs | None = None
         self._manual_request = False
 
@@ -231,7 +261,18 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
 
     @property
     def approval_policy(self) -> ApprovalPolicy:
-        """Configured policy, falling back to the default on an unknown value."""
+        """How much the user wants to be asked, as the select entity has it."""
+        return self._approval_policy
+
+    def _initial_approval_policy(self, stored: ApprovalPolicy | None) -> ApprovalPolicy:
+        """Resolve the policy for a freshly loaded entry.
+
+        The setting used to live in the config entry options, before it became a
+        control worth changing from a dashboard. An installation that predates
+        the select entity keeps the policy it was configured with.
+        """
+        if stored is not None:
+            return stored
         try:
             return ApprovalPolicy(self.options.get(CONF_APPROVAL_POLICY))
         except ValueError:
@@ -252,11 +293,20 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         against an empty record and, under ask_on_change, approve a plan that
         replaced the one the user had already answered on.
         """
-        self._record, self._smart_charging = await self._store.async_load()
+        stored = await self._store.async_load()
+        self._record = stored.record
+        self._smart_charging = stored.smart_charging
+        self._approval_policy = self._initial_approval_policy(stored.approval_policy)
 
     async def _async_save(self) -> None:
         """Write the record out."""
-        await self._store.async_save(self._record, smart_charging=self._smart_charging)
+        await self._store.async_save(
+            StoredState(
+                record=self._record,
+                smart_charging=self._smart_charging,
+                approval_policy=self._approval_policy,
+            )
+        )
 
     async def async_remove_stored_state(self) -> None:
         """Forget everything, when the config entry is deleted."""
@@ -279,6 +329,22 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._record = clear_rejection(self._record)
         self._manual_request = True
         await self.async_refresh()
+        # Saved unconditionally: the refresh only persists when reconcile
+        # changed something, and a recalculation that reaches the same plan
+        # changes nothing except the rejection just cleared.
+        await self._async_save()
+
+    async def async_set_approval_policy(self, policy: ApprovalPolicy) -> None:
+        """Change how much the user wants to be asked, and act on it now.
+
+        Switching to a laxer policy resolves whatever is currently pending
+        rather than leaving a question on screen that nothing will ever answer.
+        """
+        if self._approval_policy is policy:
+            return
+        self._approval_policy = policy
+        await self.async_refresh()
+        await self._async_save()
 
     async def async_set_smart_charging(self, enabled: bool) -> None:
         """Turn planning on or off.
@@ -500,6 +566,10 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             except InvalidPlanningInput as err:
                 problems.append(str(err))
 
+        # Captured before _reconcile consumes it, so the summary can say what a
+        # press of Recalculate concluded.
+        recalculated = self._manual_request
+
         record = self._reconcile(
             plan,
             now=now,
@@ -527,10 +597,13 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             target_soc_pct=target,
             usable_capacity_kwh=capacity,
             ready_by=ready_by,
+            evaluated_at=now,
             not_before=not_before,
             price_data=price_data,
             record=record,
             smart_charging=self._smart_charging,
+            recalculated=recalculated,
+            approval_policy=self._approval_policy,
         )
 
     def _reconcile(

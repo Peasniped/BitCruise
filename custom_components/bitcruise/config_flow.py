@@ -20,14 +20,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
     TimeSelector,
 )
 
 from .const import (
-    CONF_APPROVAL_POLICY,
     CONF_AVAILABILITY_ENTITY,
     CONF_CAPACITY_ENTITY,
     CONF_CAPACITY_FIXED_KWH,
@@ -50,7 +46,6 @@ from .const import (
     DEFAULT_TARGET_PCT,
     DOMAIN,
 )
-from .models import ApprovalPolicy
 
 
 def _percentage(minimum: float = 0, maximum: float = 100) -> NumberSelector:
@@ -147,18 +142,9 @@ def settings_schema(
                 CONF_NOT_BEFORE,
                 description={"suggested_value": defaults.get(CONF_NOT_BEFORE)},
             ): TimeSelector(),
-            vol.Required(
-                CONF_APPROVAL_POLICY,
-                default=defaults.get(
-                    CONF_APPROVAL_POLICY, ApprovalPolicy.ASK_ON_CHANGE.value
-                ),
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=[policy.value for policy in ApprovalPolicy],
-                    translation_key=CONF_APPROVAL_POLICY,
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
-            ),
+            # When to ask before charging is deliberately absent: it is
+            # select.approval_policy, so there is one place it can be read and
+            # one place it can be changed.
             vol.Required(
                 CONF_MATERIAL_CHANGE_MINUTES,
                 default=defaults.get(

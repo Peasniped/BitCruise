@@ -23,6 +23,8 @@ class BitCruiseButtonDescription(ButtonEntityDescription):
     """Describes a BitCruise button."""
 
     press_fn: Callable[[BitCruiseCoordinator], Awaitable[None]]
+    needs_proposal: bool = False
+    """Whether the action only means something while a proposal is pending."""
 
 
 BUTTONS: tuple[BitCruiseButtonDescription, ...] = (
@@ -30,11 +32,13 @@ BUTTONS: tuple[BitCruiseButtonDescription, ...] = (
         key="accept_plan",
         translation_key="accept_plan",
         press_fn=lambda coordinator: coordinator.async_accept(),
+        needs_proposal=True,
     ),
     BitCruiseButtonDescription(
         key="reject_plan",
         translation_key="reject_plan",
         press_fn=lambda coordinator: coordinator.async_reject(),
+        needs_proposal=True,
     ),
     BitCruiseButtonDescription(
         key="recalculate_plan",
@@ -59,9 +63,10 @@ async def async_setup_entry(
 class BitCruiseButton(BitCruiseEntity, ButtonEntity):
     """One approval action.
 
-    Accept and reject stay available with nothing pending, where they do
-    nothing. An unavailable entity would make an automation or a notification
-    action fail rather than harmlessly no-op.
+    Accept and reject are unavailable with nothing pending. A greyed-out button
+    is the clearest signal available that nothing wants an answer, and a stale
+    press failing visibly beats it silently doing nothing. Recalculate is always
+    available, since reconsidering is meaningful at any time.
     """
 
     entity_description: BitCruiseButtonDescription
@@ -74,6 +79,15 @@ class BitCruiseButton(BitCruiseEntity, ButtonEntity):
         """Set up the button."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
+
+    @property
+    def available(self) -> bool:
+        """Whether pressing this button would do anything."""
+        if not super().available:
+            return False
+        if not self.entity_description.needs_proposal:
+            return True
+        return self.coordinator.data.record.requires_approval
 
     async def async_press(self) -> None:
         """Run the action."""

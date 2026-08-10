@@ -86,12 +86,15 @@ class PlanSource(StrEnum):
 class ApprovalPolicy(StrEnum):
     """How much the user wants to be asked before charging happens.
 
-    Neither value is fully automatic: a materially changed window always waits
-    for an answer, because an approved plan is never silently moved (ADR-003).
+    ADR-003 says an approved plan is never *silently* changed. AUTOMATIC is the
+    one way out of that, and it is not silent: the user has to choose it, and
+    the plan status attributes still report every move. It exists because being
+    asked is only worth it if the answer is ever going to be "no".
     """
 
     ALWAYS_ASK = "always_ask"
     ASK_ON_CHANGE = "ask_on_change"
+    AUTOMATIC = "automatic"
 
 
 def _require_aware(value: datetime, name: str) -> None:
