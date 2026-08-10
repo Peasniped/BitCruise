@@ -53,6 +53,8 @@ class ExecutionBlocker(StrEnum):
     CAR_NOT_CONNECTED = "car_not_connected"
     ALREADY_CHARGING = "already_charging"
     CHARGING_FINISHED = "charging_finished"
+    STOPPED_EARLY = "stopped_early"
+    """Charging ended below target. Someone stopped it, so it stays stopped."""
     CHARGER_STATE_UNKNOWN = "charger_state_unknown"
     CHARGER_OFFLINE = "charger_offline"
     NO_CONTROL_CONFIGURED = "no_control_configured"
@@ -194,6 +196,8 @@ def next_action(
     authorization_required: bool | None = None,
     charger_online: bool | None = None,
     plug: PlugStatus = PlugStatus.UNKNOWN,
+    charge_needed: bool = True,
+    resume: bool = False,
 ) -> ExecutionDecision:
     """Decide the single next charger action.
 
@@ -201,6 +205,9 @@ def next_action(
     reports them. None means "not known", never "no": an installation without an
     authorization sensor still authorizes if it has the button, because trying
     and being ignored is cheaper than never starting.
+
+    ``resume`` overrides a respected manual stop, and is what pressing
+    Recalculate means once charging has been stopped by hand.
     """
     if not smart_charging:
         return _idle(ExecutionBlocker.SMART_CHARGING_OFF)
@@ -227,7 +234,16 @@ def next_action(
     if charger is ChargerStatus.CHARGING:
         return _idle(ExecutionBlocker.ALREADY_CHARGING)
     if charger is ChargerStatus.FINISHED:
-        return _idle(ExecutionBlocker.CHARGING_FINISHED)
+        # A charger reports "finished" both when the car reached its target and
+        # when a person pressed stop. It cannot tell them apart, but BitCruise
+        # can: still below target, with window remaining, means someone stopped
+        # it. That is respected rather than immediately undone — two planners
+        # fighting over one charger is worse than a charge that did not happen
+        # — but it must be recoverable, which is what ``resume`` is for.
+        if charge_needed and not resume:
+            return _idle(ExecutionBlocker.STOPPED_EARLY)
+        if not charge_needed:
+            return _idle(ExecutionBlocker.CHARGING_FINISHED)
     if charger is ChargerStatus.DISCONNECTED:
         return _idle(ExecutionBlocker.CAR_NOT_CONNECTED)
 

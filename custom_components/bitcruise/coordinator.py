@@ -321,6 +321,8 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._marker: ExecutionMarker | None = None
         self.version: str | None = None
         """Installed version, read from the manifest during setup."""
+        self._resume_plan_id: str | None = None
+        """Plan whose manual stop the user has asked to override."""
 
     @property
     def options(self) -> dict:
@@ -397,9 +399,17 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         await self.async_refresh()
 
     async def async_recalculate(self) -> None:
-        """Reconsider from scratch, including a window already turned down."""
+        """Reconsider from scratch, including a window already turned down.
+
+        Also the way back from a manual stop: a charger left reporting
+        "finished" below target would otherwise block the rest of the window
+        with nothing but unplugging the cable to clear it.
+        """
         self._record = clear_rejection(self._record)
         self._manual_request = True
+        self._resume_plan_id = (
+            self._record.approved.id if self._record.approved else None
+        )
         await self.async_refresh()
         # Saved unconditionally: the refresh only persists when reconcile
         # changed something, and a recalculation that reaches the same plan
@@ -799,6 +809,18 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         charger_online = self._read_bool(CONF_CHARGER_ONLINE_ENTITY)
         authorization_required = self._read_bool(CONF_AUTHORIZATION_REQUIRED_ENTITY)
         capabilities = self._capabilities()
+        # A stop is respected only for the plan it interrupted. Without tying it
+        # to the plan id, today's manual stop would still be blocking tomorrow
+        # night's charge, with a cable that never moved to clear it.
+        if charger_status in (ChargerStatus.CHARGING, ChargerStatus.DISCONNECTED):
+            self._resume_plan_id = None
+        if charger_status is ChargerStatus.DISCONNECTED:
+            # Unplugging ends the situation the attempts were made in. Keeping
+            # them would mean a charger that had been given up on stayed given
+            # up on, with reconnecting the cable — the obvious thing to try —
+            # doing nothing at all.
+            self._marker = None
+
         decision = next_action(
             now=now,
             approved=record.approved,
@@ -808,6 +830,11 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             authorization_required=authorization_required,
             charger_online=charger_online,
             plug=plug,
+            charge_needed=bool(requirement and requirement.is_charge_needed),
+            resume=(
+                record.approved is not None
+                and self._resume_plan_id == record.approved.id
+            ),
         )
 
         verdict = should_attempt(

@@ -68,7 +68,7 @@
 ,
       "charger": {
         "title": "Charger controls (optional)",
-        "description": "How BitCruise talks to your charger. Everything here is optional \u2014 leave it all empty and BitCruise will plan charging and tell you about it, but you start the charger yourself.\n\nThis release only reports what it would do. It does not press anything yet.",
+        "description": "How BitCruise talks to your charger. Everything here is optional \u2014 leave it all empty and BitCruise will plan charging and tell you about it, but you start the charger yourself.\n\nBefore you start: set the charger to normal or default control, not to run its own schedule. A charger following its own schedule accepts a start command and then quietly ignores it, and nothing it reports tells you why.\n\nBitCruise presses nothing until you turn on the 'Operate the charger' switch.",
         "data": {
           "charger_status_entity": "Charger status",
           "authorization_required_entity": "Authorization required",

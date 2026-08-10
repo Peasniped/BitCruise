@@ -160,7 +160,47 @@ class TestNothingToActOn:
         assert not decision.is_healthy
 
     def test_a_finished_session_is_not_restarted(self):
-        decision = decide(charger=ChargerStatus.FINISHED)
+        """Target reached: genuinely done, and nothing more to do."""
+        decision = decide(charger=ChargerStatus.FINISHED, charge_needed=False)
+        assert decision.action is ExecutionAction.NONE
+        assert decision.blocker is ExecutionBlocker.CHARGING_FINISHED
+
+
+class TestAManualStop:
+    """A charger says "finished" for two different things.
+
+    Reaching the target, and a person pressing stop. It cannot tell them apart;
+    BitCruise can, because it knows whether the car still needs charge.
+    """
+
+    def test_stopping_below_target_is_respected(self):
+        """Two planners fighting over one charger is worse than no charge."""
+        decision = decide(charger=ChargerStatus.FINISHED, charge_needed=True)
+        assert decision.action is ExecutionAction.NONE
+        assert decision.blocker is ExecutionBlocker.STOPPED_EARLY
+
+    def test_it_is_not_reported_as_finished(self):
+        """Reported on real hardware: "Finished charging" with the car half full."""
+        assert (
+            decide(charger=ChargerStatus.FINISHED, charge_needed=True).blocker
+            is not ExecutionBlocker.CHARGING_FINISHED
+        )
+
+    def test_resume_overrides_it(self):
+        """Recalculate is the way back; otherwise only unplugging clears it."""
+        decision = decide(
+            charger=ChargerStatus.FINISHED,
+            charge_needed=True,
+            resume=True,
+            authorization_required=False,
+        )
+        assert decision.action is ExecutionAction.START
+
+    def test_resume_does_not_restart_a_completed_charge(self):
+        """Recalculate must not top up a car that already reached its target."""
+        decision = decide(
+            charger=ChargerStatus.FINISHED, charge_needed=False, resume=True
+        )
         assert decision.action is ExecutionAction.NONE
         assert decision.blocker is ExecutionBlocker.CHARGING_FINISHED
 
@@ -261,6 +301,15 @@ class TestShouldAttempt:
     def test_a_different_plan_starts_its_own_count(self):
         marker = ExecutionMarker("plan-0", ExecutionAction.START, at=at(3), attempts=3)
         assert self.verdict(marker=marker) is AttemptVerdict.ACT
+
+    def test_giving_up_is_not_permanent(self):
+        """Unplugging clears the marker, so reconnecting tries again.
+
+        The coordinator drops it on DISCONNECTED. Without that, a charger given
+        up on stayed given up on, and the obvious thing to try — reconnecting
+        the cable — did nothing.
+        """
+        assert self.verdict(marker=None) is AttemptVerdict.ACT
 
     def test_a_marker_from_before_a_restart_still_counts(self):
         """Idempotency across a restart: the marker is persisted, so it holds."""

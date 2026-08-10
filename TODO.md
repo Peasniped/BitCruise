@@ -102,7 +102,7 @@ Landed: the charger config step, `execution.py` with the decision matrix,
 attributes on `sensor.bitcruise_plan_status`, and the execution sentences in the
 summary. Remaining:
 
-- [ ] Confirm on the real Zaptec over several nights that `next_charger_action` matches what a human watching the charger would do. This is the whole point of 6a and cannot be done from here.
+- [ ] Confirm over several nights that `next_charger_action` matches what a human watching the charger would do. One afternoon session is verified; an unattended overnight one is not.
 - [ ] Decide whether `charging_power_entity` earns a sensor of its own or stays config-only. It is collected but currently unused.
 - [ ] Consider reading a status entity's `options` attribute during config, and warning when it declares a state BitCruise does not recognise. The reference charger publishes its full enum there, so an unsupported charger could be detected at setup rather than at 02:00.
 
@@ -124,9 +124,8 @@ attempt marker giving idempotency across restarts, a cooldown so a burst of
 state changes presses once, giving up after three ignored attempts, and the
 stall reported on the status attributes and in the summary. Remaining:
 
-- [ ] Validate against the real Zaptec with the switch on, once 6a's dry run looks right.
+- [ ] Watch an unattended overnight session. The happy path is verified on the real charger — authorize, start, charging — but only with someone watching in the afternoon.
 - [ ] Late connection: recalculate achievable SoC and report it; do not extend past approved end. Starting late already works — the decision simply becomes START when the car appears mid-window — but the reachable state of charge is still reported as though the full window were used.
-- [ ] Detect an external stop: someone stopping the charge by hand currently reads as CONNECTED and gets started again. Decide whether that is right, or whether a manual stop should be respected for the rest of the window.
 - [ ] Disconnect mid-charge: currently just stops deciding. Consider whether it deserves a notification (Phase 5a).
 - [ ] Document the idempotency limitation where no status entity is configured — without one, "did it work?" cannot be answered, and the attempt cap is the only protection.
 - [ ] Decide whether `ATTEMPT_COOLDOWN` (60s) and `MAX_ATTEMPTS` (3) should be configurable, once there is evidence from a real charger.

@@ -769,6 +769,18 @@ Three further protections, all in `execution.should_attempt`:
 
 An attempt is recorded only once a call has actually been made. A control that is `unavailable` has not been tried, and must not consume an attempt.
 
+### A manual stop
+
+A charger reports "finished" for two different things: the car reached its target, and a person pressed stop. It cannot tell them apart. BitCruise can, because it knows whether the car still needs charge.
+
+Finished **at** target is completion. Finished **below** target, inside the window, is someone stopping it deliberately — and that is **respected rather than immediately undone**. Restarting it would make BitCruise and the user two planners fighting over one charger, which is worse than a charge that did not happen.
+
+It must nevertheless be recoverable, and by something a user would actually try:
+
+- **Recalculate** overrides it. Reconsidering from scratch is exactly what the button means.
+- **Reconnecting the cable** clears it, and also clears the attempt marker — a disconnect ends the situation the attempts were made in, so a charger that had been given up on is tried again.
+- **A new plan** clears it. The stop is remembered against the plan id it interrupted, so tonight's manual stop cannot still be blocking tomorrow night's charge.
+
 If state information is unavailable, configured actions should be designed to be idempotent where possible and the limitation must be documented.
 
 ### At plan end

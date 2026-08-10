@@ -86,6 +86,13 @@ between installations — nothing here may be hard-coded. It is evidence about t
   and `switch.charging` were all unavailable in this snapshot. An unavailable control
   means "cannot act yet", not "failed" — and a configured action cannot be assumed
   callable at plan start.
+- **A charger running its own schedule silently ignores external start commands.**
+  Observed on the reference Zaptec: with the charger set to *schedule* rather than
+  *default* control, authorize and start were accepted and nothing happened. Switching
+  it to default control made it work immediately. Nothing in any entity state reports
+  this, so it cannot be detected — only guessed at, which is why the "not responding"
+  message names it as the likely cause. Charger-side scheduling and BitCruise are two
+  planners fighting over one charger; only one of them should be in charge.
 - **The dashboard shows a translated label, not the state.** `charger_mode` renders as
   "Waiting" in the UI while its actual state is `connected_requesting`. Match the raw
   state; never the word on the screen. The same trap applies to any `device_class: enum`

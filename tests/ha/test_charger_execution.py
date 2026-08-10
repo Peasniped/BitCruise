@@ -283,6 +283,62 @@ async def test_a_restart_mid_session_does_not_press_again(
         assert presses == []
 
 
+async def test_a_manual_stop_is_respected_and_recoverable(
+    hass: HomeAssistant,
+) -> None:
+    """Reported on real hardware: stopping by hand left no way back.
+
+    The charger reports "finished" whether the target was reached or someone
+    pressed stop. Below target it is a manual stop, which is respected — but
+    Recalculate has to be a way out, or only unplugging the cable clears it.
+    """
+    await _arrive(hass)
+    with freeze_time(INSIDE):
+        await _enable(hass)
+        presses = _watch(hass)
+        await _plug_in(hass)
+        assert len(presses) == 1
+
+        # Someone presses stop on the charger. The car is still below target.
+        hass.states.async_set(CHARGER_MODE, "connected_finished")
+        await hass.async_block_till_done()
+
+        assert hass.states.get(STATUS).attributes["execution_blocked_by"] == (
+            "stopped_early"
+        )
+        assert hass.states.get(SUMMARY).state.startswith(
+            "Charging was stopped prematurely"
+        )
+        assert len(presses) == 1, "a manual stop must not be immediately undone"
+
+        await hass.services.async_call(
+            "button",
+            "press",
+            {ATTR_ENTITY_ID: "button.bitcruise_recalculate_plan"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
+        assert len(presses) > 1, "Recalculate must be a way back"
+
+
+async def test_reconnecting_clears_a_manual_stop(hass: HomeAssistant) -> None:
+    """Driving off and coming back is the other way out, and the common one."""
+    await _arrive(hass)
+    with freeze_time(INSIDE):
+        await _enable(hass)
+        presses = _watch(hass)
+        await _plug_in(hass)
+        hass.states.async_set(CHARGER_MODE, "connected_finished")
+        await hass.async_block_till_done()
+        stopped = len(presses)
+
+        await _plug_in(hass, mode="disconnected")
+        await _plug_in(hass)
+
+        assert len(presses) > stopped
+
+
 async def test_the_switch_is_unavailable_without_a_charger(
     hass: HomeAssistant,
 ) -> None:

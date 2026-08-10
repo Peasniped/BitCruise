@@ -47,6 +47,10 @@ _REASONS: dict[PlanSource, str] = {
 _EXECUTION: dict[ExecutionBlocker, str] = {
     ExecutionBlocker.ALREADY_CHARGING: "Charging now, {window}.",
     ExecutionBlocker.CHARGING_FINISHED: "Finished charging. Window was {window}.",
+    ExecutionBlocker.STOPPED_EARLY: (
+        "Charging was stopped prematurely. Press Recalculate to start again, "
+        "or reconnect the cable. Window {window}."
+    ),
     ExecutionBlocker.AFTER_WINDOW: "Charging window {window} has ended.",
     ExecutionBlocker.CAR_NOT_CONNECTED: (
         "Waiting for the car to be plugged in: {window}."
@@ -250,8 +254,14 @@ def summarize(
         if stalled:
             # The charger was asked repeatedly and did not respond. Silence
             # here would read as "charging is under way".
+            #
+            # The cause is named because it is nearly always the same one and
+            # is invisible from outside: a charger running its own schedule
+            # accepts the command and then ignores it. Nothing in the entity
+            # states says so, so a user with no hint has nowhere to start.
             return _clip(
-                f"{prefix}The charger is not responding. Window {_window(plan, now)}."
+                f"{prefix}The charger is not responding — check it is not "
+                f"running its own schedule. Window {_window(plan, now)}."
             )
         if blocker not in _EXECUTION and action not in (None, ExecutionAction.NONE):
             # The window is open and the car is plugged in, but charging has not
