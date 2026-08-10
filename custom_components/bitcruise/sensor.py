@@ -312,4 +312,11 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             "next_charger_action": data.decision.action.value,
             "execution_blocked_by": data.decision.blocker.value,
             "execution_healthy": data.decision.is_healthy,
+            "execution_enabled": data.execution_enabled,
+            "execution_stalled": data.execution_stalled,
+            # What was last attempted, and how often. An action still being
+            # attempted after several tries is one the charger is ignoring.
+            "last_action": data.marker.action.value if data.marker else None,
+            "last_action_at": data.marker.at.isoformat() if data.marker else None,
+            "last_action_attempts": data.marker.attempts if data.marker else 0,
         }

@@ -224,6 +224,9 @@
     "switch": {
       "smart_charging": {
         "name": "Smart charging"
+      },
+      "charger_control": {
+        "name": "Operate the charger"
       }
     },
     "select": {

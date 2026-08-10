@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from .execution import ExecutionAction, ExecutionMarker
 from .models import (
     ApprovalPolicy,
     ChargePlan,
@@ -361,18 +362,36 @@ class StoredState:
     user can change at runtime. The coordinator then falls back to the config
     entry option it used to live in, so an existing installation keeps the
     policy it was set up with.
+
+    ``marker`` is what makes charger actions idempotent across a restart: it
+    records what was last pressed, so Home Assistant restarting mid-session
+    cannot authorize or start a second time.
     """
 
     record: PlanRecord = field(default_factory=PlanRecord)
     smart_charging: bool = True
     approval_policy: ApprovalPolicy | None = None
+    execution_enabled: bool = False
+    marker: ExecutionMarker | None = None
 
 
 def stored_state_to_dict(state: StoredState) -> dict[str, Any]:
     """Serialize everything that must outlive a restart."""
     record = state.record
+    marker = state.marker
     return {
         "smart_charging": state.smart_charging,
+        "execution_enabled": state.execution_enabled,
+        "marker": (
+            {
+                "plan_id": marker.plan_id,
+                "action": marker.action.value,
+                "at": marker.at.isoformat(),
+                "attempts": marker.attempts,
+            }
+            if marker
+            else None
+        ),
         "approval_policy": (
             state.approval_policy.value if state.approval_policy else None
         ),
@@ -419,7 +438,30 @@ def stored_state_from_dict(data: object) -> StoredState:
         record=record,
         smart_charging=bool(data.get("smart_charging", True)),
         approval_policy=policy,
+        # Defaults to off, so an upgrade never starts operating a charger that
+        # was not being operated before.
+        execution_enabled=bool(data.get("execution_enabled", False)),
+        marker=_marker_from_dict(data.get("marker")),
     )
+
+
+def _marker_from_dict(data: object) -> ExecutionMarker | None:
+    """Rebuild the attempt marker, discarding anything that does not parse.
+
+    A marker that fails to load costs one repeated button press at worst, so it
+    is not worth refusing to start up over.
+    """
+    if not isinstance(data, dict):
+        return None
+    try:
+        return ExecutionMarker(
+            plan_id=str(data["plan_id"]),
+            action=ExecutionAction(data["action"]),
+            at=datetime.fromisoformat(str(data["at"])),
+            attempts=int(data["attempts"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _optional_str(value: object) -> str | None:

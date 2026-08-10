@@ -68,7 +68,7 @@ between installations — nothing here may be hard-coded. It is evidence about t
 
 | Entity | Example | Role |
 | --- | --- | --- |
-| `sensor.<charger>_charger_mode` | `disconnected` | **Authoritative execution state.** `unknown` / `disconnected` / `connected_requesting` / `connected_charging` / `connected_finished` |
+| `sensor.<charger>_charger_mode` | `connected_requesting` | **Authoritative execution state.** `device_class: enum`, and its `options` attribute declares exactly: `unknown` / `disconnected` / `connected_requesting` / `connected_charging` / `connected_finished`. Verified against the live entity. |
 | `binary_sensor.<charger>_authorization_required` | `on` | Whether authorization is needed |
 | `button.<charger>_authorize_charging` | — | Authorize |
 | `button.<charger>_deauthorize_charging` | — | Deauthorize |
@@ -86,6 +86,10 @@ between installations — nothing here may be hard-coded. It is evidence about t
   and `switch.charging` were all unavailable in this snapshot. An unavailable control
   means "cannot act yet", not "failed" — and a configured action cannot be assumed
   callable at plan start.
+- **The dashboard shows a translated label, not the state.** `charger_mode` renders as
+  "Waiting" in the UI while its actual state is `connected_requesting`. Match the raw
+  state; never the word on the screen. The same trap applies to any `device_class: enum`
+  sensor, and it is invisible until a comparison silently stops matching.
 - `charge_power` is **W**; the planner works in kW.
 - Real capability is **16 A three-phase ≈ 11 kW**, not the 10 kW originally assumed.
   `charger_max_current` is writable, so power should be configurable.

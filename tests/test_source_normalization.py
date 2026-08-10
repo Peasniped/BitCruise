@@ -5,9 +5,11 @@ Values here mirror the real entities recorded in docs/reference-installation.md.
 
 import pytest
 from custom_components.bitcruise.source_normalization import (
+    ChargerStatus,
     DataFreshness,
     PlugStatus,
     SourceUnavailable,
+    normalize_charger_status,
     normalize_energy_kwh,
     normalize_freshness,
     normalize_number,
@@ -120,3 +122,38 @@ class TestFreshness:
     @pytest.mark.parametrize("raw", [None, "unknown", "unavailable"])
     def test_unknown_states(self, raw: str | None) -> None:
         assert normalize_freshness(raw) is DataFreshness.UNKNOWN
+
+
+class TestChargerStatus:
+    """The full enum the reference charger declares, read from the live entity.
+
+    Its ``options`` attribute lists exactly these five. The Home Assistant UI
+    shows translated labels — ``connected_requesting`` renders as "Waiting" —
+    so the raw state is what must be matched, never what the dashboard says.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("unknown", ChargerStatus.UNKNOWN),
+            ("disconnected", ChargerStatus.DISCONNECTED),
+            ("connected_requesting", ChargerStatus.CONNECTED),
+            ("connected_charging", ChargerStatus.CHARGING),
+            ("connected_finished", ChargerStatus.FINISHED),
+        ],
+    )
+    def test_the_reference_charger_vocabulary(
+        self, raw: str, expected: ChargerStatus
+    ) -> None:
+        assert normalize_charger_status(raw) is expected
+
+    def test_unavailable_is_not_read_as_no_car(self) -> None:
+        """Control entities go unavailable while unplugged; that is not a fact."""
+        assert normalize_charger_status("unavailable") is ChargerStatus.UNKNOWN
+
+    def test_an_unrecognised_state_is_unknown_rather_than_guessed(self) -> None:
+        assert normalize_charger_status("nonsense") is ChargerStatus.UNKNOWN
+
+    def test_a_plain_binary_sensor_charger_works_too(self) -> None:
+        assert normalize_charger_status("on") is ChargerStatus.CHARGING
+        assert normalize_charger_status("off") is ChargerStatus.CONNECTED

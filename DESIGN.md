@@ -759,6 +759,16 @@ approved plan valid?
 
 Do not blindly press every configured button if state information proves the action is unnecessary.
 
+**Decide one action at a time, and re-decide every evaluation.** The flow above reads as a sequence, but firing a sequence blind is how a charger gets pressed three times. `execution.next_action` returns only the next step; the charger's own state is re-read before the following one. Each step is therefore conditional on the last having worked, verification needs no polling — an action that succeeded stops being decided — and the whole thing is safe to re-enter after a restart.
+
+Three further protections, all in `execution.should_attempt`:
+
+- a **cooldown** (60s), because plugging a car in produces a burst of state changes and the coordinator re-evaluates on each;
+- an **attempt cap** (3), after which it stops and reports rather than pressing a button that plainly does nothing;
+- a **persisted marker** of what was last attempted, so a restart mid-session cannot authorize or start a second time.
+
+An attempt is recorded only once a call has actually been made. A control that is `unavailable` has not been tried, and must not consume an attempt.
+
 If state information is unavailable, configured actions should be designed to be idempotent where possible and the limitation must be documented.
 
 ### At plan end
@@ -876,6 +886,7 @@ Binary sensors:
 Controls:
 
 - `Smart charging` switch
+- `Operate the charger` switch (`switch.charger_control`) - off by default; BitCruise decides and reports but calls nothing. Off is not a pause: it is the dry run that lets the integration be watched making the right calls before it is allowed to make them.
 - `When to ask before charging` select (`select.approval_policy`)
 - `Accept plan` button - unavailable unless a proposal is pending
 - `Reject plan` button - unavailable unless a proposal is pending

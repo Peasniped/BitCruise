@@ -104,7 +104,7 @@ summary. Remaining:
 
 - [ ] Confirm on the real Zaptec over several nights that `next_charger_action` matches what a human watching the charger would do. This is the whole point of 6a and cannot be done from here.
 - [ ] Decide whether `charging_power_entity` earns a sensor of its own or stays config-only. It is collected but currently unused.
-- [ ] Check the normalized vocabulary against the real `charger_mode` values — `connected_requesting` / `connected_charging` / `connected_finished` are handled from the docs, not from a live reading.
+- [ ] Consider reading a status entity's `options` attribute during config, and warning when it declares a state BitCruise does not recognise. The reference charger publishes its full enum there, so an unsupported charger could be detected at setup rather than at 02:00.
 
 ## 2. Phase 6b — Charger execution, acting
 
@@ -117,18 +117,19 @@ The restart and idempotency items below came from Phase 7 and are deliberately b
 here rather than deferred: they are part of writing a start flow, not a hardening pass
 afterwards.
 
-- [ ] Press the decided action: `button.press` or `switch.turn_on`/`turn_off` depending on the selected entity's domain. Nothing charger-specific.
-- [ ] Refuse to act on an `unavailable` control rather than calling it and failing — that state means "cannot act yet" while unplugged.
-- [ ] Verify the resulting charger state when a status sensor exists, and report when the charger did not do what it was told.
-- [ ] Decide how long to wait before re-deciding, so a charger that takes a few seconds to change state is not pressed twice.
-- [ ] End flow: stop/pause if configured, mark completed.
-- [ ] Late connection: start immediately if enough window remains.
-- [ ] Late connection: recalculate achievable SoC; do not extend past approved end.
-- [ ] Failure handling: authorization failure, start failure, charger unavailable, disconnect mid-charge, external stop, restart mid-session.
-- [ ] **Idempotency markers so a restart cannot double authorize/start/stop.**
-- [ ] **Reconcile when startup falls inside an approved window** — mid-charge, or should-have-started-and-did-not.
-- [ ] Document idempotency limitations where state is unavailable.
-- [ ] Execution tests (no live HA charger calls), including a restart at each point in `PLAN.md` Phase 7.
+Landed: `switch.bitcruise_operate_the_charger` (default **off**, so an upgrade
+never starts operating a charger that was not being operated before), domain
+dispatch to `button.press` / `switch.turn_on` / `switch.turn_off`, a persisted
+attempt marker giving idempotency across restarts, a cooldown so a burst of
+state changes presses once, giving up after three ignored attempts, and the
+stall reported on the status attributes and in the summary. Remaining:
+
+- [ ] Validate against the real Zaptec with the switch on, once 6a's dry run looks right.
+- [ ] Late connection: recalculate achievable SoC and report it; do not extend past approved end. Starting late already works — the decision simply becomes START when the car appears mid-window — but the reachable state of charge is still reported as though the full window were used.
+- [ ] Detect an external stop: someone stopping the charge by hand currently reads as CONNECTED and gets started again. Decide whether that is right, or whether a manual stop should be respected for the rest of the window.
+- [ ] Disconnect mid-charge: currently just stops deciding. Consider whether it deserves a notification (Phase 5a).
+- [ ] Document the idempotency limitation where no status entity is configured — without one, "did it work?" cannot be answered, and the attempt cap is the only protection.
+- [ ] Decide whether `ATTEMPT_COOLDOWN` (60s) and `MAX_ATTEMPTS` (3) should be configurable, once there is evidence from a real charger.
 
 ## 3. Phase 9 — Reserve floor becomes active
 

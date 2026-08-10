@@ -10,16 +10,20 @@ from datetime import timedelta
 
 import pytest
 from custom_components.bitcruise.execution import (
+    AttemptVerdict,
     ChargerCapabilities,
     ExecutionAction,
     ExecutionBlocker,
+    ExecutionDecision,
+    ExecutionMarker,
     next_action,
     ready_to_charge,
+    should_attempt,
 )
 from custom_components.bitcruise.models import ChargePlan, ChargeUrgency
 from custom_components.bitcruise.source_normalization import ChargerStatus, PlugStatus
 
-from .builders import at
+from .builders import advance, at
 
 FULL = ChargerCapabilities(
     can_authorize=True, can_start=True, can_stop=True, has_status=True
@@ -192,6 +196,77 @@ class TestUnknownChargerState:
         assert decision.action is ExecutionAction.NONE
         assert decision.blocker is ExecutionBlocker.CHARGER_STATE_UNKNOWN
         assert not decision.is_healthy
+
+
+class TestShouldAttempt:
+    """When a decided action may actually be carried out.
+
+    The decision itself says *what*; this says *whether now*. Everything here
+    exists to stop a real button being pressed in a burst, or forever.
+    """
+
+    START = ExecutionDecision(
+        action=ExecutionAction.START, blocker=ExecutionBlocker.NOTHING_TO_DO
+    )
+    IDLE = ExecutionDecision(
+        action=ExecutionAction.NONE, blocker=ExecutionBlocker.BEFORE_WINDOW
+    )
+
+    def verdict(self, **overrides: object) -> AttemptVerdict:
+        """Run one attempt decision, defaulting to a fresh start action."""
+        kwargs: dict[str, object] = {
+            "decision": self.START,
+            "plan_id": "plan-1",
+            "marker": None,
+            "now": at(3),
+            "execution_enabled": True,
+        }
+        kwargs.update(overrides)
+        return should_attempt(**kwargs)  # type: ignore[arg-type]
+
+    def test_a_fresh_action_is_carried_out(self):
+        assert self.verdict() is AttemptVerdict.ACT
+
+    def test_nothing_to_do_is_not_an_attempt(self):
+        assert self.verdict(decision=self.IDLE) is AttemptVerdict.WAIT
+
+    def test_execution_switched_off_reports_without_pressing(self):
+        """The dry run: BitCruise decides exactly as it would, and acts on none."""
+        assert self.verdict(execution_enabled=False) is AttemptVerdict.REPORT_ONLY
+
+    def test_a_repeat_within_the_cooldown_waits(self):
+        """The coordinator re-evaluates several times a second while plugging in."""
+        marker = ExecutionMarker("plan-1", ExecutionAction.START, at=at(3))
+        pressed_again = advance(at(3), timedelta(seconds=10))
+        assert self.verdict(marker=marker, now=pressed_again) is AttemptVerdict.WAIT
+
+    def test_a_repeat_after_the_cooldown_tries_again(self):
+        marker = ExecutionMarker("plan-1", ExecutionAction.START, at=at(3))
+        later = advance(at(3), timedelta(minutes=2))
+        assert self.verdict(marker=marker, now=later) is AttemptVerdict.ACT
+
+    def test_it_stops_after_repeated_failures(self):
+        """A button that plainly does nothing must not be pressed forever."""
+        marker = ExecutionMarker("plan-1", ExecutionAction.START, at=at(3), attempts=3)
+        later = advance(at(3), timedelta(hours=1))
+        assert self.verdict(marker=marker, now=later) is AttemptVerdict.GIVE_UP
+
+    def test_a_different_action_starts_its_own_count(self):
+        """Authorize having failed says nothing about whether stop will."""
+        marker = ExecutionMarker(
+            "plan-1", ExecutionAction.AUTHORIZE, at=at(3), attempts=3
+        )
+        assert self.verdict(marker=marker) is AttemptVerdict.ACT
+
+    def test_a_different_plan_starts_its_own_count(self):
+        marker = ExecutionMarker("plan-0", ExecutionAction.START, at=at(3), attempts=3)
+        assert self.verdict(marker=marker) is AttemptVerdict.ACT
+
+    def test_a_marker_from_before_a_restart_still_counts(self):
+        """Idempotency across a restart: the marker is persisted, so it holds."""
+        marker = ExecutionMarker("plan-1", ExecutionAction.START, at=at(3), attempts=1)
+        just_after = advance(at(3), timedelta(seconds=5))
+        assert self.verdict(marker=marker, now=just_after) is AttemptVerdict.WAIT
 
 
 class TestReadyToCharge:

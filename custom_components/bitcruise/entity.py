@@ -31,4 +31,7 @@ class BitCruiseEntity(CoordinatorEntity[BitCruiseCoordinator]):
             manufacturer="BitCruise",
             model="Charge planner",
             entry_type=DeviceEntryType.SERVICE,
+            # Shown on the device page, so which build is running is answerable
+            # without opening the integration list or reading the manifest.
+            sw_version=coordinator.version,
         )

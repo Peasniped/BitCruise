@@ -1,5 +1,7 @@
 """Tests for the BitCruise config flow and entry setup/unload."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,6 +21,7 @@ from custom_components.bitcruise.const import (
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 SOC_ENTITY = "sensor.test_battery"
@@ -214,6 +217,28 @@ async def test_single_instance_only(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "single_instance_allowed"
+
+
+async def test_the_device_reports_the_installed_version(
+    hass: HomeAssistant,
+) -> None:
+    """So "which build is running?" is answerable from the device page."""
+    entry = MockConfigEntry(domain=DOMAIN, data=SOURCES, options=SETTINGS)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    devices = dr.async_get(hass).devices.get_devices_for_config_entry_id(entry.entry_id)
+    assert [device.sw_version for device in devices] == [
+        json.loads(
+            (
+                Path(__file__).parent.parent.parent
+                / "custom_components"
+                / "bitcruise"
+                / "manifest.json"
+            ).read_text(encoding="utf-8")
+        )["version"]
+    ]
 
 
 async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:

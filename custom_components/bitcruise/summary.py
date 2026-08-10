@@ -18,10 +18,11 @@ module means there is a single place to change when one appears.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from .execution import ExecutionBlocker
+from .execution import ExecutionAction, ExecutionBlocker
 from .models import ChargePlan, ChargeRequirement, PlanSource, PlanStatus, to_utc
 
 # Home Assistant refuses a state longer than this.
@@ -57,6 +58,30 @@ _EXECUTION: dict[ExecutionBlocker, str] = {
     ),
     ExecutionBlocker.NO_CONTROL_CONFIGURED: (
         "Charging {window} — start the charger yourself, none is configured."
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingPhrase:
+    """How a not-yet-taken action reads, acting and merely reporting."""
+
+    acting: str
+    waiting: str
+
+
+# What is about to happen, for the gap between a window opening and energy
+# actually flowing. Which half is used depends on whether BitCruise is allowed
+# to operate the charger.
+_PENDING_ACTION: dict[ExecutionAction, _PendingPhrase] = {
+    ExecutionAction.AUTHORIZE: _PendingPhrase(
+        acting="Authorizing the charger for", waiting="The charger needs authorizing"
+    ),
+    ExecutionAction.START: _PendingPhrase(
+        acting="Starting the charger for", waiting="The charger needs starting"
+    ),
+    ExecutionAction.STOP: _PendingPhrase(
+        acting="Stopping the charger after", waiting="The charger needs stopping"
     ),
 }
 
@@ -178,6 +203,9 @@ def summarize(
     target_soc_pct: float | None = None,
     recalculated: bool = False,
     blocker: ExecutionBlocker | None = None,
+    action: ExecutionAction | None = None,
+    execution_enabled: bool = True,
+    stalled: bool = False,
 ) -> str:
     """Describe the current state in one sentence.
 
@@ -219,6 +247,25 @@ def summarize(
 
     if status is PlanStatus.APPROVED and plan is not None:
         clause = _charge_clause(plan, now, currency)
+        if stalled:
+            # The charger was asked repeatedly and did not respond. Silence
+            # here would read as "charging is under way".
+            return _clip(
+                f"{prefix}The charger is not responding. Window {_window(plan, now)}."
+            )
+        if blocker not in _EXECUTION and action not in (None, ExecutionAction.NONE):
+            # The window is open and the car is plugged in, but charging has not
+            # started: something still has to happen first. Saying "Charging"
+            # here would be a plain lie, and it is the state a user is most
+            # likely to be looking at the dashboard during.
+            pending = _PENDING_ACTION[action]
+            if not execution_enabled:
+                return _clip(
+                    f"{prefix}{pending.waiting} yourself — BitCruise is not "
+                    f"operating the charger. Window {_window(plan, now)}."
+                )
+            return _clip(f"{prefix}{pending.acting} {clause}.")
+
         template = _EXECUTION.get(blocker, "Charging {window}.")
         return _clip(f"{prefix}{template.format(window=clause)}")
 

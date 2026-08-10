@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
+from .const import DOMAIN
 from .coordinator import BitCruiseConfigEntry, BitCruiseCoordinator
 
 PLATFORMS: list[Platform] = [
@@ -24,6 +26,10 @@ PLATFORMS: list[Platform] = [
 async def async_setup_entry(hass: HomeAssistant, entry: BitCruiseConfigEntry) -> bool:
     """Set up BitCruise from a config entry."""
     coordinator = BitCruiseCoordinator(hass, entry)
+    # Read from the manifest rather than duplicated in the source, so the
+    # version shown on the device is the version that is actually installed.
+    integration = await async_get_integration(hass, DOMAIN)
+    coordinator.version = str(integration.version) if integration.version else None
     await coordinator.async_load_stored_state()
     # Listeners go up before the first evaluation, not after. Source
     # integrations are often still starting, and an entity that appeared in

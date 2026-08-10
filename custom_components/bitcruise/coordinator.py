@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
+from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    STATE_UNAVAILABLE,
+    Platform,
+)
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -53,12 +61,15 @@ from .const import (
     DOMAIN,
 )
 from .execution import (
+    AttemptVerdict,
     ChargerCapabilities,
     ExecutionAction,
     ExecutionBlocker,
     ExecutionDecision,
+    ExecutionMarker,
     next_action,
     ready_to_charge,
+    should_attempt,
 )
 from .models import (
     ApprovalPolicy,
@@ -134,11 +145,19 @@ class BitCruiseData:
     charger_online: bool | None = None
     authorization_required: bool | None = None
     capabilities: ChargerCapabilities = field(default_factory=ChargerCapabilities)
+    execution_enabled: bool = False
+    marker: ExecutionMarker | None = None
+    verdict: AttemptVerdict = AttemptVerdict.WAIT
     decision: ExecutionDecision = field(
         default_factory=lambda: ExecutionDecision(
             action=ExecutionAction.NONE, blocker=ExecutionBlocker.NO_APPROVED_PLAN
         )
     )
+
+    @property
+    def execution_stalled(self) -> bool:
+        """Whether a charger has ignored the same action several times."""
+        return self.verdict is AttemptVerdict.GIVE_UP
 
     @property
     def is_usable(self) -> bool:
@@ -198,6 +217,9 @@ class BitCruiseData:
             target_soc_pct=self.target_soc_pct,
             recalculated=self.recalculated,
             blocker=self.decision.blocker,
+            action=self.decision.action,
+            execution_enabled=self.execution_enabled,
+            stalled=self.execution_stalled,
         )
 
     @property
@@ -295,6 +317,10 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._previous_inputs: PlanInputs | None = None
         self._manual_request = False
         self._currency: str | None = None
+        self._execution_enabled = False
+        self._marker: ExecutionMarker | None = None
+        self.version: str | None = None
+        """Installed version, read from the manifest during setup."""
 
     @property
     def options(self) -> dict:
@@ -339,6 +365,8 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._record = stored.record
         self._smart_charging = stored.smart_charging
         self._approval_policy = self._initial_approval_policy(stored.approval_policy)
+        self._execution_enabled = stored.execution_enabled
+        self._marker = stored.marker
 
     async def _async_save(self) -> None:
         """Write the record out."""
@@ -347,6 +375,8 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
                 record=self._record,
                 smart_charging=self._smart_charging,
                 approval_policy=self._approval_policy,
+                execution_enabled=self._execution_enabled,
+                marker=self._marker,
             )
         )
 
@@ -374,6 +404,21 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         # Saved unconditionally: the refresh only persists when reconcile
         # changed something, and a recalculation that reaches the same plan
         # changes nothing except the rejection just cleared.
+        await self._async_save()
+
+    async def async_set_execution_enabled(self, enabled: bool) -> None:
+        """Allow or forbid BitCruise operating the charger.
+
+        Off is not a pause: everything is still decided and reported, so the
+        integration can be watched making the right calls before it is allowed
+        to make them.
+        """
+        if self._execution_enabled == enabled:
+            return
+        self._execution_enabled = enabled
+        # Any half-finished attempt belongs to the previous mode.
+        self._marker = None
+        await self.async_refresh()
         await self._async_save()
 
     async def async_set_approval_policy(self, policy: ApprovalPolicy) -> None:
@@ -414,6 +459,12 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             CONF_CHARGER_STATUS_ENTITY,
             CONF_CHARGER_ONLINE_ENTITY,
             CONF_AUTHORIZATION_REQUIRED_ENTITY,
+            # The controls themselves, because they are unavailable while
+            # nothing is plugged in. One becoming available is the moment an
+            # action that could not be attempted becomes possible.
+            CONF_AUTHORIZE_ENTITY,
+            CONF_START_ENTITY,
+            CONF_STOP_ENTITY,
         )
         options = self.options
         return [value for key in keys if (value := options.get(key))]
@@ -489,10 +540,89 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         """Recompute from current entity states, persisting any approval change."""
         data = self._evaluate()
         self._schedule_boundary(data)
-        if data.record != self._record:
+        changed = data.record != self._record
+        if changed:
             self._record = data.record
+        if await self._async_execute(data):
+            # The evaluation was assembled before the action was taken, so the
+            # attempt it reports would otherwise be one cycle out of date.
+            data = replace(data, marker=self._marker)
+            await self._async_save()
+        elif changed:
             await self._async_save()
         return data
+
+    async def _async_execute(self, data: BitCruiseData) -> bool:
+        """Carry out the decided charger action, if it may be carried out now.
+
+        The single place in the integration that operates a charger. Returns
+        whether the attempt marker changed and therefore needs persisting.
+        """
+        plan = data.record.approved
+        if data.verdict is not AttemptVerdict.ACT:
+            return False
+
+        entity_id = self._control_entity(data.decision.action)
+        if entity_id is None:
+            return False
+
+        # The marker is only recorded once a call has actually been made. A
+        # control that is unavailable has not been tried, and must not burn an
+        # attempt — otherwise a car plugged in later finds the retries already
+        # spent on a charger that was never asked anything.
+        if not await self._async_press(entity_id, data.decision.action):
+            return False
+
+        assert plan is not None  # ACT requires a plan id
+        previous = self._marker
+        repeat = previous is not None and previous.covers(plan.id, data.decision.action)
+        self._marker = ExecutionMarker(
+            plan_id=plan.id,
+            action=data.decision.action,
+            at=data.evaluated_at,
+            attempts=previous.attempts + 1 if repeat and previous else 1,
+        )
+        return True
+
+    def _control_entity(self, action: ExecutionAction) -> str | None:
+        """Return the entity that performs an action, if one was configured."""
+        keys = {
+            ExecutionAction.AUTHORIZE: CONF_AUTHORIZE_ENTITY,
+            ExecutionAction.START: CONF_START_ENTITY,
+            ExecutionAction.STOP: CONF_STOP_ENTITY,
+        }
+        key = keys.get(action)
+        return self.options.get(key) if key else None
+
+    async def _async_press(self, entity_id: str, action: ExecutionAction) -> bool:
+        """Operate a control, dispatching on its domain rather than its vendor.
+
+        A button is pressed; a switch is turned on, or off to stop. Nothing here
+        knows anything about a particular charger. Returns whether a call was
+        actually made.
+        """
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state == STATE_UNAVAILABLE:
+            # Charger controls are unavailable while nothing is plugged in.
+            # That is "cannot act yet", so it is not recorded as a failure.
+            _LOGGER.debug("%s is unavailable; not attempting %s", entity_id, action)
+            return False
+
+        domain = entity_id.split(".", 1)[0]
+        if domain == Platform.SWITCH:
+            service = (
+                SERVICE_TURN_OFF if action is ExecutionAction.STOP else SERVICE_TURN_ON
+            )
+        else:
+            domain, service = Platform.BUTTON, SERVICE_PRESS
+
+        _LOGGER.info(
+            "BitCruise %s: calling %s.%s on %s", action, domain, service, entity_id
+        )
+        await self.hass.services.async_call(
+            domain, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
+        )
+        return True
 
     def _read_percentage(self, entity_id: str, problems: list[str]) -> float | None:
         """Read a percentage from an entity, recording any problem."""
@@ -680,6 +810,14 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             plug=plug,
         )
 
+        verdict = should_attempt(
+            decision=decision,
+            plan_id=record.approved.id if record.approved else None,
+            marker=self._marker,
+            now=now,
+            execution_enabled=self._execution_enabled,
+        )
+
         return BitCruiseData(
             requirement=requirement,
             plan=plan,
@@ -703,6 +841,9 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             authorization_required=authorization_required,
             capabilities=capabilities,
             decision=decision,
+            execution_enabled=self._execution_enabled,
+            marker=self._marker,
+            verdict=verdict,
         )
 
     def _reconcile(

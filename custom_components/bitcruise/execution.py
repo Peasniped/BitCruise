@@ -21,7 +21,7 @@ so rather than acting hopefully.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 from .models import ChargePlan, to_utc
@@ -57,6 +57,77 @@ class ExecutionBlocker(StrEnum):
     CHARGER_OFFLINE = "charger_offline"
     NO_CONTROL_CONFIGURED = "no_control_configured"
     PLUG_FAULT = "plug_fault"
+
+
+class AttemptVerdict(StrEnum):
+    """Whether the decided action may actually be carried out now."""
+
+    ACT = "act"
+    WAIT = "wait"
+    """Already pressed; the charger has not had time to respond yet."""
+    GIVE_UP = "give_up"
+    """Pressed repeatedly and nothing changed. Something is wrong."""
+    REPORT_ONLY = "report_only"
+    """Execution is switched off. The decision stands; nothing is pressed."""
+
+
+# A charger takes a moment to change state, and the coordinator re-evaluates on
+# every source entity change — several times a second while a car is plugging
+# in. Without a cooldown the same button would be pressed in a burst.
+ATTEMPT_COOLDOWN = timedelta(seconds=60)
+
+# After this many attempts with no change in charger state, stop. Charging is
+# convenience automation: pressing a button that plainly does nothing, forever,
+# is worse than stopping and saying so.
+MAX_ATTEMPTS = 3
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionMarker:
+    """What was last attempted, so a restart cannot repeat it.
+
+    Keyed on the plan as well as the action: the same action against a *different*
+    plan is a new situation and starts its attempt count again.
+    """
+
+    plan_id: str
+    action: ExecutionAction
+    at: datetime
+    attempts: int = 1
+
+    def covers(self, plan_id: str, action: ExecutionAction) -> bool:
+        """Whether this marker describes the same attempt being considered."""
+        return self.plan_id == plan_id and self.action is action
+
+
+def should_attempt(
+    *,
+    decision: ExecutionDecision,
+    plan_id: str | None,
+    marker: ExecutionMarker | None,
+    now: datetime,
+    execution_enabled: bool,
+    cooldown: timedelta = ATTEMPT_COOLDOWN,
+    max_attempts: int = MAX_ATTEMPTS,
+) -> AttemptVerdict:
+    """Decide whether to carry out the action, wait, or stop trying.
+
+    Verification is by construction rather than by polling: ``next_action`` is
+    recomputed from the charger's own state every evaluation, so an action that
+    worked stops being decided. An action still being decided after several
+    attempts is one that did not work.
+    """
+    if decision.action is ExecutionAction.NONE or plan_id is None:
+        return AttemptVerdict.WAIT
+    if not execution_enabled:
+        return AttemptVerdict.REPORT_ONLY
+    if marker is None or not marker.covers(plan_id, decision.action):
+        return AttemptVerdict.ACT
+    if marker.attempts >= max_attempts:
+        return AttemptVerdict.GIVE_UP
+    if to_utc(now) - to_utc(marker.at) < cooldown:
+        return AttemptVerdict.WAIT
+    return AttemptVerdict.ACT
 
 
 @dataclass(frozen=True, slots=True)

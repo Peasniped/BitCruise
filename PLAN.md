@@ -22,7 +22,7 @@ is the delivery sequence; [TODO.md](TODO.md) is written in that order.
 | — | 3 | Energi Data Service + Carnot price adapter | Complete |
 | — | 4 | Proposal/approval state machine | Complete |
 | 1 | 6a | Charger execution, reporting only | Code complete; awaiting hardware check |
-| 2 | 6b | Charger execution, acting | Not started |
+| 2 | 6b | Charger execution, acting | Code complete; awaiting hardware check |
 | 3 | 9 | Reserve floor becomes active | Not started |
 | 4 | 8a | Daily commute requirement | Not started |
 | 5 | 16 | Multi-day price awareness | Not started |

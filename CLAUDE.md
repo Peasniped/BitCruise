@@ -8,6 +8,7 @@ Instructions for Claude working in this repository.
 - Don't run destructive git commands without confirmation.
 - Don't introduce new dependencies without need.
 - No need to tell me about the CRLF→LF warnings every commit.
+- Don't bump the minor version without asking.
 
 ## Do's
 
@@ -17,6 +18,7 @@ Instructions for Claude working in this repository.
 - When you are done implementing a feature, before committing, DO tell me what to test to assess the implementation, as user steps.
 - DO write git commits at regular intervals when it makes sense. Keep the messages short — a subject line and a sentence or two of context at most. Don't restate the diff.
 - You must DO show a preview of the commit message in text and get my confirmation **before** calling any git tool.
+- DO bump the **patch** version in `manifest.json` on every push, so the version on the integration page identifies the running build. Propose a **minor** bump when a phase lands or behaviour changes materially, and wait for my say-so. The version is read from the manifest at setup and also shown as the device's firmware version — there is no second copy to keep in sync.
 
 ## What this project is
 
@@ -107,6 +109,7 @@ here where they are read every session.
 - **Nothing that is not JSON-serializable may reach an entity state attribute.** Home Assistant serializes states with orjson, which refuses `Decimal`. The entity then never reaches the frontend and shows as `unavailable`, with nothing on it to say why. Currency is `Decimal` throughout, so this is a standing hazard; convert at the presentation boundary. Guard: `tests/ha/test_serialization.py`. Reading attributes in-process, as most tests do, cannot catch it.
 - **A replan can never start in the past, so a running window's start always drifts.** Comparing a fresh candidate's start against an approved window that has already begun means the gap grows with the clock and eventually exceeds any tolerance — asking the user, every hour, to approve the fact that time has passed. Once `now` is inside an approved window, only the *end* moving is a material change (`windows_equivalent(..., started=True)`). Found on the reference installation, with the car away during its own window. Regression tests: `tests/test_plan_state.py::TestARunningWindowIsNotReproposed`.
 - **Anything read live from a source entity vanishes when that entity blinks.** Currency came from the price entity, so one `unavailable` update silently stripped the unit off the cost — in the summary sentence and off `sensor.estimated_cost`, whose unit HA then sees change under the recorder. Values that describe *how to read* a number, rather than the number itself, are remembered across evaluations.
+- **A mock service registered before `async_setup` is replaced by the real one.** Forwarding a config entry to a platform sets up that platform's *component*, which registers its own `button.press` and friends. `async_mock_service` must therefore be called **after** setup, or the calls under test go to the real service and the recorder stays empty while everything looks correct. Costly to diagnose: every intermediate value reads right.
 - **Plan ids must be derived from plan content only.** Mixing the calculation time in makes every recomputation look like a new plan, and the approval machine re-asks about a window the user already answered.
 - **`integration_type: service`, not `helper`.** `helper` files the integration under the Helpers tab, whose UI opens an options flow on click, so an integration without one fails with "Invalid handler specified" (home-assistant/frontend#15044). The calculated nature is carried by `iot_class`. Regression test in `tests/test_manifest.py`.
 - **Do not debounce recomputation.** A coordinator-level debouncer was tried and reverted: on a restart every source entity appears in one burst, so it evaluated the first and deferred the rest, leaving the integration reporting "entity not found" for entities that plainly existed. Recomputation is a pure function over `hass.states` and costs nothing. Debouncing belongs at the point a *notification* would be sent.
