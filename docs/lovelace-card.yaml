@@ -1,0 +1,384 @@
+# A Lovelace card for BitCruise.
+#
+# Requires the `button-card` custom card (HACS → Frontend → "button-card").
+# Paste this into a Manual card.
+#
+# It shows the whole integration in one tile: the smart charging toggle, the
+# summary sentence, the approval policy, and the accept / reject / recalculate
+# buttons. Accept and reject grey themselves out when nothing is pending,
+# because the entities report `unavailable` unless a proposal is waiting.
+#
+# The visible labels are Danish, as written by the author of the card:
+#   "Godkend ladeplan" - approve charging plan
+#   "AKTIVERET" / "DEAKTIVERET" - enabled / disabled
+#   "Automatisk" / "Ved ændring" / "Spørg altid" - the three approval policies
+#   "Ingen status tilgængelig" - no status available
+# Translate them in place; nothing else depends on them.
+#
+# Entity ids assume the default device name "BitCruise". If the config entry was
+# renamed, the entity ids follow the new name and every reference here changes.
+
+type: custom:button-card
+entity: switch.bitcruise_smart_charging
+name: Smart Charging
+show_name: true
+show_icon: false
+show_label: true
+triggers_update:
+  - sensor.bitcruise_summary
+  - button.bitcruise_accept_plan
+  - button.bitcruise_reject_plan
+  - select.bitcruise_when_to_ask_before_charging
+label: |
+  [[[
+    const summary = states['sensor.bitcruise_summary'];
+
+    if (
+      !summary ||
+      summary.state === 'unknown' ||
+      summary.state === 'unavailable'
+    ) {
+      return 'Ingen status tilgængelig';
+    }
+
+    return summary.state;
+  ]]]
+tap_action:
+  action: none
+hold_action:
+  action: none
+custom_fields:
+  toggle:
+    card:
+      type: custom:button-card
+      entity: switch.bitcruise_smart_charging
+      icon: mdi:ev-station
+      show_name: false
+      show_state: false
+      show_label: false
+      tap_action:
+        action: toggle
+      hold_action:
+        action: more-info
+      styles:
+        card:
+          - width: 52px
+          - height: 52px
+          - padding: 0
+          - border-radius: 15px
+          - background: var(--secondary-background-color)
+          - box-shadow: none
+          - border: none
+        icon:
+          - width: 32px
+          - color: var(--state-inactive-color)
+      state:
+        - value: 'on'
+          styles:
+            icon:
+              - color: var(--state-switch-active-color)
+        - value: 'off'
+          styles:
+            icon:
+              - color: var(--state-inactive-color)
+  status: |
+    [[[
+      return entity.state === 'on'
+        ? 'AKTIVERET'
+        : 'DEAKTIVERET';
+    ]]]
+  controls:
+    card:
+      type: custom:button-card
+      show_name: false
+      show_icon: false
+      tap_action:
+        action: none
+      styles:
+        card:
+          - background: none
+          - box-shadow: none
+          - border: none
+          - padding: 0
+          - overflow: visible
+        grid:
+          - grid-template-areas: '"selector recalculate accept reject"'
+          - grid-template-columns: minmax(0, 1fr) 44px 44px 44px
+          - gap: 11px
+          - align-items: center
+      custom_fields:
+        selector: |
+          [[[[
+            const selectEntity =
+              states['select.bitcruise_when_to_ask_before_charging'];
+
+            const current =
+              selectEntity?.state || 'automatic';
+
+            const disabled =
+              !selectEntity ||
+              current === 'unknown' ||
+              current === 'unavailable';
+
+            return html`
+              <div
+                @click=${(e) => e.stopPropagation()}
+                @mousedown=${(e) => e.stopPropagation()}
+                @touchstart=${(e) => e.stopPropagation()}
+                style="
+                  width: 100%;
+                  height: 44px;
+                  box-sizing: border-box;
+
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+
+                  padding: 0 7px 0 13px;
+
+                  border: 1px solid var(--divider-color);
+                  border-radius: 13px;
+
+                  background: transparent;
+                  overflow: hidden;
+                "
+              >
+
+                <span
+                  style="
+                    flex: 0 0 auto;
+                    white-space: nowrap;
+
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--secondary-text-color);
+                  "
+                >
+                  Godkend ladeplan
+                </span>
+
+                <select
+                  .value=${current}
+                  ?disabled=${disabled}
+
+                  @click=${(e) => e.stopPropagation()}
+                  @mousedown=${(e) => e.stopPropagation()}
+                  @touchstart=${(e) => e.stopPropagation()}
+
+                  @change=${(e) => {
+                    e.stopPropagation();
+
+                    hass.callService(
+                      'select',
+                      'select_option',
+                      {
+                        entity_id:
+                          'select.bitcruise_when_to_ask_before_charging',
+                        option: e.target.value
+                      }
+                    );
+                  }}
+
+                  style="
+                    flex: 1 1 auto;
+                    min-width: 0;
+                    height: 34px;
+
+                    border: none;
+                    outline: none;
+                    border-radius: 10px;
+
+                    padding: 0 10px;
+
+                    background: var(--secondary-background-color);
+                    color: var(--primary-text-color);
+
+                    font-size: 12px;
+                    font-weight: 500;
+
+                    cursor: pointer;
+                  "
+                >
+                  <option value="automatic">
+                    Automatisk
+                  </option>
+
+                  <option value="ask_on_change">
+                    Ved ændring
+                  </option>
+
+                  <option value="always_ask">
+                    Spørg altid
+                  </option>
+                </select>
+
+              </div>
+            `;
+          ]]]]
+        recalculate:
+          card:
+            type: custom:button-card
+            entity: button.bitcruise_recalculate_plan
+            icon: mdi:autorenew
+            show_name: false
+            show_state: false
+            show_label: false
+            tap_action:
+              action: call-service
+              service: button.press
+              service_data:
+                entity_id: button.bitcruise_recalculate_plan
+            styles:
+              card:
+                - width: 44px
+                - height: 44px
+                - padding: 0
+                - border-radius: 13px
+                - background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.10)
+                - box-shadow: none
+                - border: none
+              icon:
+                - width: 24px
+                - color: var(--primary-color)
+            # Recalculate stays available at all times: reconsidering is
+            # meaningful whenever, and it is the way back from a rejected plan
+            # or a charge that was stopped by hand.
+            state:
+              - value: unavailable
+                styles:
+                  card:
+                    - opacity: 0.3
+                    - filter: grayscale(1)
+                    - pointer-events: none
+                    - background: var(--secondary-background-color)
+                  icon:
+                    - color: var(--disabled-text-color)
+        accept:
+          card:
+            type: custom:button-card
+            entity: button.bitcruise_accept_plan
+            icon: mdi:check
+            show_name: false
+            show_state: false
+            show_label: false
+            tap_action:
+              action: call-service
+              service: button.press
+              service_data:
+                entity_id: button.bitcruise_accept_plan
+            styles:
+              card:
+                - width: 44px
+                - height: 44px
+                - padding: 0
+                - border-radius: 13px
+                - background: rgba(var(--rgb-success-color, 76, 175, 80), 0.12)
+                - box-shadow: none
+                - border: none
+              icon:
+                - width: 24px
+                - color: var(--success-color)
+            state:
+              - value: unavailable
+                styles:
+                  card:
+                    - opacity: 0.3
+                    - filter: grayscale(1)
+                    - pointer-events: none
+                    - background: var(--secondary-background-color)
+                  icon:
+                    - color: var(--disabled-text-color)
+        reject:
+          card:
+            type: custom:button-card
+            entity: button.bitcruise_reject_plan
+            icon: mdi:close
+            show_name: false
+            show_state: false
+            show_label: false
+            tap_action:
+              action: call-service
+              service: button.press
+              service_data:
+                entity_id: button.bitcruise_reject_plan
+            styles:
+              card:
+                - width: 44px
+                - height: 44px
+                - padding: 0
+                - border-radius: 13px
+                - background: rgba(var(--rgb-error-color, 244, 67, 54), 0.10)
+                - box-shadow: none
+                - border: none
+              icon:
+                - width: 24px
+                - color: var(--error-color)
+            state:
+              - value: unavailable
+                styles:
+                  card:
+                    - opacity: 0.3
+                    - filter: grayscale(1)
+                    - pointer-events: none
+                    - background: var(--secondary-background-color)
+                  icon:
+                    - color: var(--disabled-text-color)
+styles:
+  card:
+    - padding: 18px
+    - border-radius: 20px
+    - overflow: visible
+  grid:
+    - grid-template-areas: |
+        "toggle n status"
+        "toggle l l"
+        "controls controls controls"
+    - grid-template-columns: 58px 1fr min-content
+    - grid-template-rows: min-content min-content min-content
+    - column-gap: 14px
+    - row-gap: 7px
+  name:
+    - justify-self: start
+    - align-self: end
+    - font-size: 15px
+    - font-weight: 600
+    - color: var(--primary-text-color)
+  label:
+    - justify-self: start
+    - align-self: start
+    - text-align: left
+    - white-space: normal
+    - font-size: 17px
+    - font-weight: 500
+    - line-height: 1.35
+    - color: var(--secondary-text-color)
+  custom_fields:
+    toggle:
+      - justify-self: center
+      - align-self: center
+    status:
+      - justify-self: end
+      - align-self: center
+      - padding: 5px 9px
+      - border-radius: 20px
+      - font-size: 10px
+      - font-weight: 700
+      - letter-spacing: 0.5px
+      - background: var(--secondary-background-color)
+    controls:
+      - width: 100%
+      - margin-top: 10px
+      - overflow: visible
+state:
+  - value: 'on'
+    styles:
+      card:
+        - box-shadow: inset 4px 0 var(--state-switch-active-color)
+      custom_fields:
+        status:
+          - color: var(--state-switch-active-color)
+  - value: 'off'
+    styles:
+      custom_fields:
+        status:
+          - color: var(--secondary-text-color)

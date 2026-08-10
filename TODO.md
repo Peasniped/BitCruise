@@ -367,7 +367,8 @@ project owns that (ADR-005). Unscheduled because nothing else depends on it.
 
 ### Presentation
 
-- [ ] Custom Lovelace card. Last, once the entity shape has stopped moving. The summary sentence should make this less necessary, not more.
+- [ ] Custom Lovelace card shipped with the integration. A working hand-built one lives in [`docs/lovelace-card.yaml`](docs/lovelace-card.yaml) and serves as the specification: summary sentence, smart-charging toggle, approval policy, and accept / reject / recalculate. Shipping it means a JavaScript frontend module registered as a HACS frontend resource — a second language, a second release artifact, and a second thing to keep in step with entity names. Worth doing only once the entity surface has stopped moving, so after Phase 14 rather than before.
+- [ ] Decide what a shipped card does about language. The example card's labels are hard-coded Danish; a shipped one should read the integration's own translations, which is one more reason it should wait.
 - [ ] Translate `sensor.bitcruise_summary`. Home Assistant translates enumerated entity states, not composed ones, so the sentence is English-only. `summary.py` keeps the wording in one place; the likely route is `async_get_translations` over a custom category, which needs checking against hassfest first.
 
 ### Calendar conveniences

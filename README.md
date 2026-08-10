@@ -7,12 +7,14 @@
 [![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](LICENSE)
 
 > [!WARNING]
-> **Early development. Not ready for use.**
+> **Early development. Works, but not yet released.**
 >
-> BitCruise does not yet plan or control charging. The repository currently contains
-> a config-entry skeleton only. Do not rely on it to charge a vehicle. Behavior,
-> configuration schema, and entity names will change without migration paths until
-> a `0.1.0` release is tagged.
+> BitCruise plans charging and drives a charger, and does both on the author's own
+> installation. There are no tagged releases: configuration and entity names can
+> still change without migration paths, so an upgrade may need reconfiguring.
+>
+> Treat it as convenience automation rather than a guarantee. Do not depend on it
+> for a car you must have charged by morning.
 
 A Home Assistant custom integration that plans and executes residential EV charging
 using data that already exists in Home Assistant.
@@ -25,6 +27,25 @@ the Home Assistant entities and actions you selected.
 It does **not** talk to any vehicle, charger, or price API directly. Everything goes
 through Home Assistant, so BitCruise is not tied to any particular brand of car,
 charger, or electricity provider.
+
+## What it does today
+
+- Works out how much energy the car needs and how long that takes.
+- Finds the cheapest contiguous window that reaches your target before your
+  ready-by time, using real prices where they exist and forecast prices for the
+  hours the real ones have not reached yet.
+- Asks before charging, as much or as little as you want: every time, only when the
+  plan changes, or never. That is a control on the dashboard, not a buried setting.
+- Authorizes and starts your charger at the planned time, and stops it at the end.
+- Says what it is doing in one sentence, in `sensor.bitcruise_summary`, rather than
+  leaving you to assemble it from a dozen entities.
+
+**Charger control is opt-in.** The `Operate the charger` switch is **off** by
+default: BitCruise decides and reports exactly as it would, and presses nothing.
+Watch it make the right calls for a few nights before letting it make them.
+
+Not yet built: notifications, a reserve floor for unplanned trips, calendar-driven
+trips, and multi-day price optimisation. See [TODO.md](TODO.md).
 
 ## Requirements
 
@@ -41,8 +62,15 @@ charger, or electricity provider.
   charging rather than only plan it.
 
 The reference installation is a Volvo XC40 Recharge, a Zaptec Go 2, and Energi Data
-Service with Carnot forecasts, at roughly 10 kW. None of those are required — they
-are simply what the first release is tested against.
+Service with Carnot forecasts, at 16 A three-phase (about 11 kW). None of those are
+required — they are simply what the first release is tested against. Their real
+entity names, units and traps are recorded in
+[docs/reference-installation.md](docs/reference-installation.md).
+
+> [!NOTE]
+> If your charger has its own built-in schedule, switch it to normal or default
+> control. A charger following its own schedule accepts a start command and then
+> quietly ignores it, and nothing it reports tells you why.
 
 ## Installation
 
@@ -59,9 +87,25 @@ are simply what the first release is tested against.
 Copy `custom_components/bitcruise/` into your Home Assistant `config/custom_components/`
 directory and restart Home Assistant.
 
+Setup asks for three pages: the entities to read, the charging settings, and — all
+optional — the charger controls. Leaving the third page empty is a complete
+configuration: BitCruise plans and tells you, and you start the charger yourself.
+
+The installed version is shown on the integration page and as the device's firmware
+version, which is how to check that an upgrade actually took.
+
+## Dashboard
+
+[docs/lovelace-card.yaml](docs/lovelace-card.yaml) is a ready-made card showing the
+summary sentence, the smart-charging toggle, the approval policy, and the accept /
+reject / recalculate buttons in one tile. It needs the `button-card` custom card from
+HACS. A card shipped with the integration is on the backlog, not in the box.
+
 ## Development
 
-Requires Python 3.13 or newer. Home Assistant 2026.x runs on Python 3.14.
+Requires Python **3.14**. Home Assistant 2026.3 and newer will not run on anything
+older, and a 3.13 environment silently resolves Home Assistant back to 2026.2.x
+rather than failing, which produces confusing test results.
 
 ```bash
 python -m venv .venv
@@ -114,6 +158,8 @@ To test against a real Home Assistant instance, symlink or copy
 | File | Contents |
 | --- | --- |
 | [TODO.md](TODO.md) | Actionable backlog |
+| [docs/reference-installation.md](docs/reference-installation.md) | Real entity names, units and traps from the development installation |
+| [docs/lovelace-card.yaml](docs/lovelace-card.yaml) | Example dashboard card |
 | [CLAUDE.md](CLAUDE.md) | Instructions for AI-assisted development |
 
 ## Licence
