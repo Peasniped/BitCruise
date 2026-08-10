@@ -10,31 +10,65 @@ The project builds in layers. The first useful release solves charging well befo
 
 ## Phase status
 
-| Phase | Title | Status |
-| --- | --- | --- |
-| 0 | Repository bootstrap | Complete |
-| 1 | Domain model and pure charging planner | Complete |
-| 2 | HA source binding and visible sensors | Code complete; awaiting hardware check |
-| 3 | Energi Data Service + Carnot price adapter | Complete |
-| 4 | Proposal/approval state machine | Complete |
-| 5 | Notifications | Not started |
-| 6 | Charger execution | Not started |
-| 7 | Restart recovery and robustness | Not started |
-| 8 | Daily charging for battery health | Not started |
-| 9 | Urgency-aware planning for unplanned trips | Not started |
-| 10 | Calendar booking input | Future |
-| 11 | Trip energy planning | Future |
-| 12 | Booking conflict decisions | Future |
-| 13 | Planned distance calendar | Future |
-| 14 | First HACS-quality release | Future |
-| 15 | Multiple vehicles and shared-resource coordination | Future |
+**Phase numbers are identity, not sequence.** They are referenced from `DESIGN.md`, the
+ADRs and `CLAUDE.md`, so they keep their names when priorities move. The `Order` column
+is the delivery sequence; [TODO.md](TODO.md) is written in that order.
 
-Phases 0–9 are ordered and build on each other. Phases 10–15 state their own
-dependencies.
+| Order | Phase | Title | Status |
+| --- | --- | --- | --- |
+| — | 0 | Repository bootstrap | Complete |
+| — | 1 | Domain model and pure charging planner | Complete |
+| — | 2 | HA source binding and visible sensors | Code complete; awaiting hardware check |
+| — | 3 | Energi Data Service + Carnot price adapter | Complete |
+| — | 4 | Proposal/approval state machine | Complete |
+| 1 | 6a | Charger execution, reporting only | Not started |
+| 2 | 6b | Charger execution, acting | Not started |
+| 3 | 9 | Reserve floor becomes active | Not started |
+| 4 | 8a | Daily commute requirement | Not started |
+| 5 | 16 | Multi-day price awareness | Not started |
+| 6 | 8c | Optional deadline | Not started |
+| 7 | 5a | Notification plumbing and critical cases | Not started |
+| 8 | 5b | Cheap power alert | Not started |
+| 9 | 5c | Remaining notification cases | Not started |
+| 10 | 10 | Calendar booking input | Not started |
+| 11 | 11 | Trip energy planning | Not started |
+| 12 | 13 | Planned distance calendar | Not started |
+| 13 | 7 | Repairs and diagnostics | Partly absorbed; see below |
+| 14 | 14 | First HACS-quality release | Not started |
+| 15 | 15 | Multiple vehicles and shared-resource coordination | Not started |
+| — | 8b | Just-in-time finishing | Demoted to backlog |
+| — | 12 | Booking conflict decisions | Unscheduled |
 
-The public release sits at Phase 14, after the calendar and distance work, because
-the configuration schema should stop moving before other people install it and have
-to be migrated.
+### What changed, and why
+
+The original 5→9 sequence was written before Phases 3 and 4 existed. Reordering by
+delivered value produced four structural changes:
+
+**Execution comes first.** Until it charges the car, everything else is an integration
+that tells you things you then act on by hand. It splits in two: 6a builds the whole
+config surface and every precondition check but never fires an action, so it can be
+dry-run against the real charger; 6b acts.
+
+**Phase 7 mostly already happened.** Persistence, callback re-registration, plan expiry,
+and tolerating unavailable sources all landed in Phases 3 and 4 and are covered by
+tests. What remains that concerns *execution* — idempotency markers, reconciling a
+restart inside an approved window — moves into 6b, because a build that can double-start
+a charger should never exist even briefly. Repairs and diagnostics are what is left.
+
+**The floor and the commute figure move ahead of everything they enable.** Both are
+prerequisites for multi-day planning: deferring charging to tomorrow requires knowing
+what tomorrow morning actually demands, and with a 90% target and no floor there is
+nothing to defer.
+
+**Multi-day price awareness (Phase 16) replaces just-in-time finishing.** Sitting at
+80-90% for a few days does not meaningfully age a battery; sitting at 100%, hot, does.
+So delaying *within* a night buys little, while shifting a whole day is worth real
+money — and the two optimise opposite axes. Just-in-time is demoted rather than
+dropped, in case daily targets end up near 100%.
+
+The public release still sits at Phase 14, after the calendar and distance work,
+because the configuration schema should stop moving before other people install it and
+have to be migrated.
 
 Provider-specific calendar RSVP is **out of scope permanently**, not deferred. A
 separate lightweight project handles it. BitCruise may still decide whether a booking
@@ -71,7 +105,7 @@ This is the most important layer. Charger control is not started before it is he
 
 Includes `reserve_floor_pct` and `ChargeUrgency` in the domain model and the floor
 deficit calculation (§5, ADR-007). The floor defaults to `0`, which reproduces pure
-deadline-driven behavior; urgency-aware *planning* is Phase 13. Carrying the field
+deadline-driven behavior; urgency-aware *planning* is Phase 9. Carrying the field
 now avoids reopening `PlanningInput`, `ChargePlan`, persistence, and the approval
 state machine at once later.
 
@@ -89,7 +123,7 @@ Given fixture prices and battery state, `planner.py` returns exactly the expecte
 
 Also adds the reserve floor as a configurable percentage, validated against the target
 (`DESIGN.md` §5). It is exposed and honoured in the deficit figures; acting on it
-urgently is Phase 13.
+urgently is Phase 9.
 
 **Acceptance criteria.**
 
@@ -129,13 +163,24 @@ An already approved schedule can never be silently changed by a background repla
 
 **Scope.** The optional notification target, warning offset (default 15 minutes), and the notification cases and message shapes in `DESIGN.md` §8.
 
-Includes the cheap power alert (§8), which is independent of the car: it fires whether
-or not charging is needed and is not gated on the smart charging switch. It needs the
-Phase 3 price curve, and its main design risk is nuisance rather than correctness —
-one notification per cheap *window*, never per interval, and never repeated when the
-price curve refreshes.
+Delivered in three parts, because they are wanted at different times:
 
-Buttons in notifications invoke the same integration actions as dashboard buttons. Approval logic is never duplicated inside notification handling.
+*5a — Plumbing and the critical cases.* The notification target, the debounce, and the
+two messages worth having the day execution goes live: charger action failed, and car
+not connected before start. Messages send `sensor.bitcruise_summary` rather than
+composing a second set of sentences; wording a message needs and the summary lacks is
+added to `summary.py`.
+
+*5b — Cheap power alert (§8).* Independent of the car: it fires whether or not charging
+is needed and is not gated on the smart charging switch. It needs the Phase 3 price
+curve and 5a's plumbing, nothing else, so it can be brought forward whenever a quick
+win is wanted. Its main design risk is nuisance rather than correctness — one
+notification per cheap *window*, never per interval, and never repeated when the price
+curve refreshes.
+
+*5c — The remaining cases.* Proposal, plan moved, impossible target, completion summary.
+
+Buttons in notifications invoke the same integration actions as dashboard buttons. Approval logic is never duplicated inside notification handling. Since Phase 4's presentation pass, `button.accept_plan` and `button.reject_plan` are unavailable when nothing is pending, and Home Assistant silently skips unavailable entities in a service call — so a notification action tapped after the question is answered does nothing rather than failing. Whether that silence is acceptable is a 5c decision.
 
 **Acceptance criteria.**
 
@@ -143,27 +188,68 @@ The system remains fully operable from HA entities when no notification target i
 
 ---
 
-## Phase 6 — Charger execution
+## Phase 6a — Charger execution, reporting only
 
-**Goal.** Execute an approved plan through user-selected Home Assistant controls. The initial real target is a Zaptec Go 2, via generic entity/action selection rather than Zaptec-specific code.
+**Goal.** Everything execution needs except firing an action, so the whole flow can be
+dry-run against the real charger before it is allowed to touch it.
 
-**Scope.** The optional charger capability selections added to the config flow, the start/end execution flows, late-connection behavior, and failure handling — all in `DESIGN.md` §9 and §10.
+**Scope.** The optional charger capability selections added to the config flow
+(`DESIGN.md` §10), every start precondition in §9 evaluated and reported,
+`binary_sensor.ready_to_charge`, and the execution states added to the summary
+sentence. No service call is made.
+
+Charger control entities are `unavailable` while unplugged on the reference
+installation. That is "cannot act yet", not a fault, and must not read as one.
 
 **Acceptance criteria.**
 
-On the real Zaptec Go 2, an approved plan authorizes/starts at the planned time and stops at the planned end, with no YAML automation glue.
+Over several nights on the real Zaptec Go 2, the integration reports that it would have
+authorized and started at the planned time, and the report matches what a human
+watching the charger would have done. No charger action is ever sent.
 
 ---
 
-## Phase 7 — Restart recovery and robustness
+## Phase 6b — Charger execution, acting
 
-**Goal.** Make the integration boringly reliable across restarts and transient unavailable entities.
+**Goal.** Execute an approved plan through the user-selected Home Assistant controls.
+The initial real target is a Zaptec Go 2, via generic entity/action selection rather
+than Zaptec-specific code.
 
-**Scope.** Persistence, callback re-registration, reconciliation, and idempotency as specified in `DESIGN.md` §11, plus diagnostics with private data redacted and Repairs issues for broken entity selections.
+**Scope.** The start/end execution flows, late-connection behavior, and failure
+handling in `DESIGN.md` §9, plus the execution half of §11: idempotency markers and
+reconciliation when startup falls inside an approved window.
+
+Those last two came from Phase 7 and are built here deliberately. Knowing whether an
+action has already been sent is part of writing the action, not a later hardening pass;
+a build that can double-start a charger should never exist, even briefly.
 
 **Acceptance criteria.**
 
-Restarting Home Assistant at each of these points produces sensible behavior: before scheduled start; one minute before start; during charging; one minute before end; after end; while price or car entities are unavailable.
+On the real Zaptec Go 2, an approved plan authorizes/starts at the planned time and
+stops at the planned end, with no YAML automation glue. Restarting Home Assistant at
+each of these points produces sensible behavior: before scheduled start; one minute
+before start; during charging; one minute before end; after end; while price or car
+entities are unavailable.
+
+---
+
+## Phase 7 — Repairs and diagnostics
+
+**Goal.** Make a broken configuration explain itself.
+
+**Scope.** Repairs issues for broken entity selections, and diagnostics output with
+private data redacted.
+
+This is what remains of the original "restart recovery and robustness" phase.
+Persistence, callback re-registration, plan expiry and tolerating unavailable sources
+landed in Phases 3 and 4 and are covered by tests; the execution-recovery items moved
+into Phase 6b.
+
+**Acceptance criteria.**
+
+Deleting a selected source entity raises a Repairs issue naming it, and a diagnostics
+download contains no entity IDs, addresses, or notification targets belonging to the
+household.
 
 ---
 
@@ -176,31 +262,30 @@ A lithium battery ages faster the longer it sits at a high state of charge, so t
 default behaviour should be to hold a modest daily level and reach a high one only
 when something actually requires it.
 
-**Scope.** Three related changes, specified in `DESIGN.md` §6.5 and §17.
+**Scope.** Two changes, specified in `DESIGN.md` §6.5 and §17. A third,
+*just-in-time finishing*, was split out and demoted — see below.
 
-*Daily commute requirement.* The user enters their commute distance **one way**;
-BitCruise doubles it for the return leg, converts it to energy using the vehicle's
-own measured consumption where available, adds the reserve floor, and reports the
-state of charge that actually covers the day. That figure is what a daily target
-should be set to, instead of 90%.
+*8a — Daily commute requirement.* The user enters their commute distance **one way**;
+BitCruise doubles it for the return leg, converts it to energy — preferring the
+vehicle's own live range estimate over any kWh/100km figure (`DESIGN.md` §17) — adds
+the reserve floor, and reports the state of charge that actually covers the day. That
+figure is what a daily target should be set to, instead of 90%.
 
-*Just-in-time finishing.* When several windows cost about the same, prefer the one
-that ends closest to the deadline rather than the earliest. Cost is unchanged; hours
-spent sitting at a high state of charge are not.
+This is the largest battery-health win available, and it is also a prerequisite for
+Phase 16: you cannot defer charging to tomorrow without knowing what tomorrow morning
+demands.
 
-Two things make this safe rather than clever. "About the same" needs an explicit
-tolerance, so a genuinely cheaper early window is never traded away for battery
-health. And finishing must target the deadline **minus a safety buffer**, configurable
-and defaulting to around 45 minutes, so a late start, a slow charger, or a car that
-tapers near the top does not turn a tidy optimisation into a car that is not ready.
+*8c — Optional deadline.* Ready-by becomes optional. A household without a fixed
+departure should be able to say "keep it above the floor, charge only when cheap" and
+have that be a complete configuration. It depends on Phase 9 rather than the reverse:
+with no deadline, the only thing stopping the planner waiting forever for a cheaper
+hour is the reserve floor.
 
-This reverses the current earliest-start tie-break, which exists so repeated planning
-is deterministic. Latest-start is equally deterministic, so the property is preserved
-rather than lost.
-
-*Optional deadline.* Ready-by becomes optional. A household without a fixed departure
-should be able to say "keep it above the floor, charge only when cheap" and have that
-be a complete configuration.
+*8b — Just-in-time finishing (demoted).* When several windows cost about the same,
+prefer the one that ends closest to the deadline. Moved to the backlog: sitting at
+80-90% for a few days does not meaningfully age a battery, so the gain is small, and it
+optimises the opposite axis to Phase 16's whole-day deferral. Revisit only if daily
+targets end up near 100%.
 
 **Acceptance criteria.**
 
@@ -238,7 +323,45 @@ already approved plan survives unchanged.
 
 ---
 
-## Phase 10 — Calendar booking input (future)
+## Phase 16 — Multi-day price awareness
+
+**Depends on:** Phase 9 (the floor) and Phase 8a (the commute requirement). Both are
+hard prerequisites: deferring charging means knowing what tomorrow morning demands, and
+with a 90% target and no floor there is nothing that may safely be left uncharged.
+
+**Goal.** Stop optimising one night at a time. Tomorrow's actual prices publish around
+13:00 CET; if tomorrow is materially cheaper, charge only what tonight requires and do
+the bulk tomorrow.
+
+**Scope.** A comparison between the cheapest window before the next deadline and the
+cheapest window in the following cycle, and a decision about *how much* to charge now.
+
+The load-bearing design constraint: this changes **how much to charge tonight**, not
+the shape of the window. It must not emit one plan spanning two days. The window stays
+contiguous, `planner.py` is unchanged, and only this cycle's effective target moves —
+which keeps "split charging across non-contiguous intervals" out of the critical path.
+
+Three things make it safe rather than clever:
+
+- **The floor is not negotiable.** A deferral may never take the car below the reserve
+  floor plus tomorrow's commute. Phase 9 wins every disagreement.
+- **Forecast prices need a wider margin than actual ones.** The cost is asymmetric: a
+  wrong forecast means a car that is not ready, not a slightly worse price. Reuse the
+  `tomorrow_valid` and `PlanPriceQuality` distinction from Phase 3 rather than adding a
+  clock trigger for 13:00.
+- **Deferral must not chain forever.** "Tomorrow looks cheaper" every day is a car that
+  never charges. There is a cap, after which it charges and reports why.
+
+**Acceptance criteria.**
+
+On an evening where tomorrow is materially cheaper, the car charges only what it needs
+for the morning and the rest is scheduled for the cheaper day, with the reason visible
+in the summary. On an evening where tomorrow is cheaper only by noise, the plan is
+unchanged. In neither case does the car drop below the reserve floor.
+
+---
+
+## Phase 10 — Calendar booking input
 
 **Goal.** Let a shared household calendar define when the car is needed, via `Fastmail -> CalDAV -> HA calendar entity -> BitCruise`.
 
@@ -250,7 +373,7 @@ Adding a valid car-booking event changes the next ready-by deadline and required
 
 ---
 
-## Phase 11 — Trip energy planning (future)
+## Phase 11 — Trip energy planning
 
 **Goal.** Estimate the energy a booking requires, including the return journey, and derive a required departure SoC.
 
@@ -262,7 +385,7 @@ A booking with an explicit distance produces a defensible required departure SoC
 
 ---
 
-## Phase 12 — Booking conflict decisions (future)
+## Phase 12 — Booking conflict decisions (unscheduled)
 
 **Goal.** Determine whether a requested car booking conflicts with existing bookings.
 
@@ -279,7 +402,7 @@ Given a fixture set of bookings, the decision engine returns deterministic confl
 
 ---
 
-## Phase 13 — Planned distance calendar (future)
+## Phase 13 — Planned distance calendar
 
 **Depends on:** Phases 10 and 11.
 
@@ -301,7 +424,7 @@ planned distance exceeds usable range is visibly flagged.
 
 ---
 
-## Phase 14 — First HACS-quality release (future)
+## Phase 14 — First HACS-quality release
 
 **Depends on:** everything above it.
 
@@ -326,7 +449,7 @@ upgrade have both been tested.
 
 ---
 
-## Phase 15 — Multiple vehicles and shared-resource coordination (future)
+## Phase 15 — Multiple vehicles and shared-resource coordination
 
 **Depends on:** Phases 1–7. Should follow Phase 9, since a floor breach on one car
 competes with a normal plan on another.
@@ -355,7 +478,7 @@ rule that resolved any collision is inspectable rather than emergent.
 
 Unordered, tracked in [TODO.md](TODO.md):
 
-split charging across non-contiguous cheapest intervals; price ceiling / "never charge above X unless required"; negative-price preference; solar forecast/surplus charging; dynamic charger current based on house load; multiple EVs sharing one connection limit; multiple chargers; historical actual charging power learning; learned wall-to-battery efficiency; charger session energy reconciliation; automatic completion detection from SoC target rather than schedule end; configurable tariff/tax components; custom Lovelace card; calendar UI helpers; route provider adapter; DC fast-charge stop planning; household priority rules; vacation/away mode.
+just-in-time finishing (demoted from Phase 8, see above); split charging across non-contiguous cheapest intervals; price ceiling / "never charge above X unless required"; negative-price preference; solar forecast/surplus charging; dynamic charger current based on house load; multiple EVs sharing one connection limit; multiple chargers; historical actual charging power learning; learned wall-to-battery efficiency; charger session energy reconciliation; automatic completion detection from SoC target rather than schedule end; configurable tariff/tax components; custom Lovelace card; calendar UI helpers; route provider adapter; DC fast-charge stop planning; household priority rules; vacation/away mode.
 
 ---
 
