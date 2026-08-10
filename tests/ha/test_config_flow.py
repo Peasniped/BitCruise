@@ -5,11 +5,13 @@ from typing import Any
 import pytest
 from custom_components.bitcruise.const import (
     CONF_CAPACITY_FIXED_KWH,
+    CONF_CHARGER_STATUS_ENTITY,
     CONF_CHARGING_EFFICIENCY,
     CONF_CHARGING_POWER_KW,
     CONF_READY_BY,
     CONF_RESERVE_FLOOR_PCT,
     CONF_SOC_ENTITY,
+    CONF_START_ENTITY,
     CONF_TARGET_ENTITY,
     CONF_TARGET_FIXED_PCT,
     DOMAIN,
@@ -53,7 +55,7 @@ def _sources(hass: HomeAssistant) -> None:
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
-    """The two-step flow collects sources then settings and creates one entry."""
+    """Sources, then settings, then charger controls, and one entry."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -65,12 +67,54 @@ async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
     assert result["step_id"] == "settings"
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], SETTINGS)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "charger"
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "BitCruise"
     assert result["data"][CONF_SOC_ENTITY] == SOC_ENTITY
     assert result["options"][CONF_CAPACITY_FIXED_KWH] == 81.608
+
+
+async def test_the_charger_step_is_entirely_skippable(hass: HomeAssistant) -> None:
+    """BitCruise plans without a charger; someone starts it by hand."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SOURCES)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SETTINGS)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert CONF_START_ENTITY not in result["data"]
+
+
+async def test_charger_controls_are_stored_with_the_sources(
+    hass: HomeAssistant,
+) -> None:
+    """They are entity bindings, so they live in data beside the other ones."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SOURCES)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SETTINGS)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_CHARGER_STATUS_ENTITY: "sensor.charger_mode",
+            CONF_START_ENTITY: "button.charger_resume",
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_CHARGER_STATUS_ENTITY] == "sensor.charger_mode"
+    assert result["data"][CONF_START_ENTITY] == "button.charger_resume"
+    assert result["data"][CONF_SOC_ENTITY] == SOC_ENTITY
 
 
 async def test_capacity_is_required_without_an_entity(hass: HomeAssistant) -> None:
@@ -114,6 +158,7 @@ async def test_target_entity_removes_the_fixed_requirement(
     )
     settings = {k: v for k, v in SETTINGS.items() if k != CONF_TARGET_FIXED_PCT}
     result = await hass.config_entries.flow.async_configure(result["flow_id"], settings)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -207,6 +252,9 @@ async def test_reconfigure_changes_sources_and_keeps_settings(
 
     settings = {k: v for k, v in SETTINGS.items() if k != CONF_TARGET_FIXED_PCT}
     result = await hass.config_entries.flow.async_configure(result["flow_id"], settings)
+    assert result["step_id"] == "charger"
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.ABORT

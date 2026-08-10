@@ -65,7 +65,29 @@
           "material_change_minutes": "How far an already approved window has to move before you are asked again. One price interval (60 minutes) means any real move asks; a larger value tolerates small shifts silently."
         }
       }
-    },
+,
+      "charger": {
+        "title": "Charger controls (optional)",
+        "description": "How BitCruise talks to your charger. Everything here is optional \u2014 leave it all empty and BitCruise will plan charging and tell you about it, but you start the charger yourself.\n\nThis release only reports what it would do. It does not press anything yet.",
+        "data": {
+          "charger_status_entity": "Charger status",
+          "authorization_required_entity": "Authorization required",
+          "authorize_entity": "Authorize button",
+          "start_entity": "Start or resume",
+          "stop_entity": "Stop or pause",
+          "charger_online_entity": "Charger online",
+          "charging_power_entity": "Charging power"
+        },
+        "data_description": {
+          "charger_status_entity": "Reports whether a car is connected and whether it is charging. Strongly recommended: without it BitCruise has to guess from the car's own cable sensor, and cannot confirm that starting worked.",
+          "authorization_required_entity": "On when the charger is waiting to be authorized. Without it BitCruise authorizes anyway, which is harmless on a charger that does not need it.",
+          "authorize_entity": "Pressed when the charger is waiting for authorization. Leave empty if your charger authorizes by itself.",
+          "start_entity": "A button or switch that starts or resumes charging.",
+          "stop_entity": "A button or switch that stops or pauses charging. Leave empty if the car stops itself at its target.",
+          "charger_online_entity": "On while the charger is reachable. Used to avoid pressing controls that cannot respond.",
+          "charging_power_entity": "Optional. Actual power being drawn, for reporting only."
+        }
+      }    },
     "error": {
       "target_required": "Select a charge target entity, or set a fixed target.",
       "capacity_required": "Select a battery capacity entity, or enter the capacity.",
@@ -183,6 +205,9 @@
       },
       "plan_requires_approval": {
         "name": "Plan requires approval"
+      },
+      "ready_to_charge": {
+        "name": "Ready to charge"
       }
     },
     "button": {

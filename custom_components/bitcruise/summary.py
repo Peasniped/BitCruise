@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
+from .execution import ExecutionBlocker
 from .models import ChargePlan, ChargeRequirement, PlanSource, PlanStatus, to_utc
 
 # Home Assistant refuses a state longer than this.
@@ -35,6 +36,28 @@ _REASONS: dict[PlanSource, str] = {
     PlanSource.SETTINGS_CHANGE: "Settings changed",
     PlanSource.MANUAL: "Recalculated",
     PlanSource.SCHEDULE: "Time moved on",
+}
+
+
+# How an approved plan reads once execution has an opinion about it. Only the
+# states that change what a person should do get their own sentence; the rest
+# fall through to the plain "Charging ..." form, because "waiting for the window
+# to open" is what an approved plan already means.
+_EXECUTION: dict[ExecutionBlocker, str] = {
+    ExecutionBlocker.ALREADY_CHARGING: "Charging now, {window}.",
+    ExecutionBlocker.CHARGING_FINISHED: "Finished charging. Window was {window}.",
+    ExecutionBlocker.AFTER_WINDOW: "Charging window {window} has ended.",
+    ExecutionBlocker.CAR_NOT_CONNECTED: (
+        "Waiting for the car to be plugged in: {window}."
+    ),
+    ExecutionBlocker.CHARGER_OFFLINE: "Charger is offline. Window {window}.",
+    ExecutionBlocker.PLUG_FAULT: "The charging cable reports a fault. Window {window}.",
+    ExecutionBlocker.CHARGER_STATE_UNKNOWN: (
+        "Cannot tell whether the car is plugged in. Window {window}."
+    ),
+    ExecutionBlocker.NO_CONTROL_CONFIGURED: (
+        "Charging {window} — start the charger yourself, none is configured."
+    ),
 }
 
 
@@ -148,22 +171,28 @@ def summarize(
     problems: Sequence[str] = (),
     currency: str | None = None,
     smart_charging: bool = True,
-    is_replacement: bool = False,
+    replaces: ChargePlan | None = None,
     proposal_reason: PlanSource | None = None,
     ready_by: datetime | None = None,
     current_soc_pct: float | None = None,
     target_soc_pct: float | None = None,
     recalculated: bool = False,
+    blocker: ExecutionBlocker | None = None,
 ) -> str:
     """Describe the current state in one sentence.
 
-    ``plan`` is the plan the sentence is about — the approved one when there is
-    one, otherwise the proposal or the raw candidate — matching what the other
-    plan sensors report.
+    ``plan`` is the plan the sentence is about. While a proposal is pending that
+    is the *proposal*, not the approved plan: the question being asked is about
+    the new window. ``replaces`` carries the approved plan it would displace, so
+    the sentence can name both ends of the move.
 
     ``recalculated`` marks the one evaluation a press of Recalculate produced.
     A recalculation that finds the same plan changes nothing anywhere, which
     reads as a dead button; saying so is the only feedback there is.
+
+    ``blocker`` refines an approved plan with what execution makes of it — "the
+    car is not plugged in" is the difference between a plan that will happen and
+    one that will not.
     """
     if status is PlanStatus.ERROR:
         return _clip(_problem_clause(problems))
@@ -177,11 +206,21 @@ def summarize(
 
     if status is PlanStatus.AWAITING_APPROVAL and plan is not None:
         opening = _REASONS.get(proposal_reason, "Plan changed")
-        verb = "approve moving charging to" if is_replacement else "approve charging"
-        return _clip(f"{opening}: {verb} {_charge_clause(plan, now, currency)}.")
+        clause = _charge_clause(plan, now, currency)
+        if replaces is not None and replaces.has_window:
+            # Naming both ends is the whole content of the question. "Approve
+            # moving charging to 14:00" without saying what it moves *from*
+            # cannot be answered without going and looking it up.
+            return _clip(
+                f"{opening}: approve moving charging from "
+                f"{_window(replaces, now)} to {clause}."
+            )
+        return _clip(f"{opening}: approve charging {clause}.")
 
     if status is PlanStatus.APPROVED and plan is not None:
-        return _clip(f"{prefix}Charging {_charge_clause(plan, now, currency)}.")
+        clause = _charge_clause(plan, now, currency)
+        template = _EXECUTION.get(blocker, "Charging {window}.")
+        return _clip(f"{prefix}{template.format(window=clause)}")
 
     if status is PlanStatus.NEEDS_CHARGE:
         return _clip(

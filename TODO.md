@@ -97,18 +97,14 @@ Everything execution needs *except* firing an action. Run it on the real Zaptec 
 few nights and check it would have done the right thing at 02:00. The one phase that
 can physically do something wrong to a car is the one worth dry-running.
 
-- [ ] Config: charger connected/status entity.
-- [ ] Config: authorization-state entity.
-- [ ] Config: authorize action/button.
-- [ ] Config: start/resume action/button/switch.
-- [ ] Config: stop/pause action/button/switch.
-- [ ] Config: optional charging power and charging state sensors.
-- [ ] Evaluate every start precondition in `DESIGN.md` §9 and report the result.
-- [ ] `binary_sensor.ready_to_charge`.
-- [ ] Report which actions *would* fire and which state information proves unnecessary, without calling them.
-- [ ] Charger entities are `unavailable` while unplugged — that is "cannot act yet", not an error, and must not read as a fault.
-- [ ] Extend `sensor.bitcruise_summary` to cover the execution states.
-- [ ] Tests for every precondition combination (no live HA charger calls).
+Landed: the charger config step, `execution.py` with the decision matrix,
+`ChargerStatus` normalization, `binary_sensor.ready_to_charge`, the execution
+attributes on `sensor.bitcruise_plan_status`, and the execution sentences in the
+summary. Remaining:
+
+- [ ] Confirm on the real Zaptec over several nights that `next_charger_action` matches what a human watching the charger would do. This is the whole point of 6a and cannot be done from here.
+- [ ] Decide whether `charging_power_entity` earns a sensor of its own or stays config-only. It is collected but currently unused.
+- [ ] Check the normalized vocabulary against the real `charger_mode` values — `connected_requesting` / `connected_charging` / `connected_finished` are handled from the docs, not from a live reading.
 
 ## 2. Phase 6b — Charger execution, acting
 

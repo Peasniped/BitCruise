@@ -604,6 +604,7 @@ An approved plan must be persisted so an HA restart does not accidentally lose o
 
 ### Core rules
 
+- Once the clock is inside an approved window, its start is frozen: a candidate whose start has merely caught up with the clock is not a material change, and only the end moving asks again. Without this the user is asked hourly to approve time passing.
 - New plan with no approved plan -> proposal.
 - User accepts -> proposal becomes approved atomically.
 - User rejects -> proposal cleared/rejected.

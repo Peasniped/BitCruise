@@ -458,7 +458,12 @@ async def test_the_summary_names_the_reason_for_a_replan(
         await hass.async_block_till_done()
 
         summary = hass.states.get(SUMMARY).state
-        assert summary.startswith("Battery level changed: approve moving charging to")
+        assert summary.startswith(
+            "Battery level changed: approve moving charging from 02:00-"
+        )
+        # The question is about the new window, not the one already approved.
+        proposed = datetime.fromisoformat(hass.states.get(PROPOSED_START).state)
+        assert f"to {proposed.astimezone(CPH):%H:%M}-" in summary
 
 
 async def test_the_summary_says_when_planning_is_switched_off(
@@ -484,4 +489,26 @@ async def test_the_cost_sensor_is_rounded_to_currency_precision(
 
         cost = hass.states.get("sensor.bitcruise_estimated_cost")
         assert len(cost.state.split(".")[1]) == 2
+        assert cost.attributes["unit_of_measurement"] == "DKK"
+
+
+async def test_the_currency_survives_the_price_entity_blinking(
+    hass: HomeAssistant,
+) -> None:
+    """Found on real hardware: the summary lost "for 21.51 DKK" for one update.
+
+    The currency is read live from the price entity, so an unavailable moment
+    was stripping the unit off the cost — and off the cost sensor with it, which
+    Home Assistant treats as a sensor changing its unit under the recorder.
+    """
+    with freeze_time(EVENING):
+        await _setup(hass)
+        await _press(hass, "accept_plan")
+        assert "DKK" in hass.states.get(SUMMARY).state
+
+        hass.states.async_set(PRICE, "unavailable")
+        await hass.async_block_till_done()
+
+        assert "DKK" in hass.states.get(SUMMARY).state
+        cost = hass.states.get("sensor.bitcruise_estimated_cost")
         assert cost.attributes["unit_of_measurement"] == "DKK"

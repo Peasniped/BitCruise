@@ -21,7 +21,7 @@ is the delivery sequence; [TODO.md](TODO.md) is written in that order.
 | — | 2 | HA source binding and visible sensors | Code complete; awaiting hardware check |
 | — | 3 | Energi Data Service + Carnot price adapter | Complete |
 | — | 4 | Proposal/approval state machine | Complete |
-| 1 | 6a | Charger execution, reporting only | Not started |
+| 1 | 6a | Charger execution, reporting only | Code complete; awaiting hardware check |
 | 2 | 6b | Charger execution, acting | Not started |
 | 3 | 9 | Reserve floor becomes active | Not started |
 | 4 | 8a | Daily commute requirement | Not started |

@@ -5,6 +5,7 @@ rules exist to protect: an approved plan is never silently changed (ADR-003).
 """
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 
@@ -31,7 +32,7 @@ from custom_components.bitcruise.plan_state import (
 )
 from custom_components.bitcruise.planner import plan_charging
 
-from .builders import at, hourly, planning_input, prices_with_cheap_pair
+from .builders import advance, at, hourly, planning_input, prices_with_cheap_pair
 
 ONE_INTERVAL = timedelta(hours=1)
 
@@ -243,6 +244,51 @@ class TestSmartChargingOff:
         record = fold(PlanRecord(), plan_at(9), smart_charging=False)
         assert record.proposal is None
         assert record.approved is None
+
+
+class TestARunningWindowIsNotReproposed:
+    """Found on real hardware: an hourly prompt to approve time passing.
+
+    A replan can never propose starting in the past, so once a window is
+    running the candidate's start creeps forward with the clock and eventually
+    differs by any tolerance. The user was asked, every hour, to approve the
+    window they were already in.
+    """
+
+    def test_a_start_that_has_only_caught_up_with_the_clock_is_not_a_change(
+        self,
+    ) -> None:
+        """The reported case: same end, start dragged forward by the clock."""
+        approved = settled()
+        window = approved.approved
+        inside = advance(window.start, timedelta(hours=1))
+        # What a replan produces an hour in: it cannot start in the past.
+        caught_up = replace(window, start=inside)
+
+        record = fold(approved, caught_up, now=inside)
+
+        assert record.proposal is None
+        assert record.approved == window
+
+    def test_before_it_starts_a_moved_window_still_asks(self) -> None:
+        """The useful behaviour has to survive the fix."""
+        approved = settled()
+        moved = fold(approved, plan_at(3), now=at(0))
+
+        assert moved.proposal is not None
+
+    def test_a_moved_end_still_asks_mid_window(self) -> None:
+        """Charging for longer than agreed is a real change, and is asked about."""
+        approved = settled()
+        window = approved.approved
+        inside = advance(window.start, timedelta(minutes=30))
+        longer = replace(
+            window, start=inside, end=advance(window.end, timedelta(hours=2))
+        )
+
+        record = fold(approved, longer, now=inside)
+
+        assert record.proposal is not None
 
 
 class TestAutomaticPolicy:

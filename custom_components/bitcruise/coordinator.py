@@ -25,9 +25,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_APPROVAL_POLICY,
+    CONF_AUTHORIZATION_REQUIRED_ENTITY,
+    CONF_AUTHORIZE_ENTITY,
     CONF_AVAILABILITY_ENTITY,
     CONF_CAPACITY_ENTITY,
     CONF_CAPACITY_FIXED_KWH,
+    CONF_CHARGER_ONLINE_ENTITY,
+    CONF_CHARGER_STATUS_ENTITY,
     CONF_CHARGING_EFFICIENCY,
     CONF_CHARGING_POWER_KW,
     CONF_MATERIAL_CHANGE_MINUTES,
@@ -37,6 +41,8 @@ from .const import (
     CONF_READY_BY,
     CONF_RESERVE_FLOOR_PCT,
     CONF_SOC_ENTITY,
+    CONF_START_ENTITY,
+    CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     CONF_TARGET_FIXED_PCT,
     DEFAULT_CHARGING_EFFICIENCY,
@@ -45,6 +51,14 @@ from .const import (
     DEFAULT_READY_BY,
     DEFAULT_RESERVE_FLOOR_PCT,
     DOMAIN,
+)
+from .execution import (
+    ChargerCapabilities,
+    ExecutionAction,
+    ExecutionBlocker,
+    ExecutionDecision,
+    next_action,
+    ready_to_charge,
 )
 from .models import (
     ApprovalPolicy,
@@ -69,9 +83,11 @@ from .plan_state import (
 from .planner import compute_requirement, plan_charging
 from .price_sources import PriceData, parse_price_attributes
 from .source_normalization import (
+    ChargerStatus,
     DataFreshness,
     PlugStatus,
     SourceUnavailable,
+    normalize_charger_status,
     normalize_energy_kwh,
     normalize_freshness,
     normalize_percentage,
@@ -101,11 +117,28 @@ class BitCruiseData:
     evaluated_at: datetime
     not_before: datetime | None = None
     price_data: PriceData | None = None
+    currency: str | None = None
+    """Currency the price source quotes, carried over while it is unreadable.
+
+    Read from the price entity, which blinks to unavailable from time to time.
+    Dropping the currency with it would silently strip the unit off the cost —
+    a sentence reading "37.2 kWh" with no price, and a cost sensor whose unit
+    changes under Home Assistant's feet.
+    """
     record: PlanRecord = field(default_factory=PlanRecord)
     smart_charging: bool = True
     recalculated: bool = False
     """Whether this evaluation is the one a press of Recalculate produced."""
     approval_policy: ApprovalPolicy = ApprovalPolicy.ASK_ON_CHANGE
+    charger_status: ChargerStatus = ChargerStatus.UNKNOWN
+    charger_online: bool | None = None
+    authorization_required: bool | None = None
+    capabilities: ChargerCapabilities = field(default_factory=ChargerCapabilities)
+    decision: ExecutionDecision = field(
+        default_factory=lambda: ExecutionDecision(
+            action=ExecutionAction.NONE, blocker=ExecutionBlocker.NO_APPROVED_PLAN
+        )
+    )
 
     @property
     def is_usable(self) -> bool:
@@ -142,11 +175,6 @@ class BitCruiseData:
         return PlanStatus.NEEDS_CHARGE
 
     @property
-    def currency(self) -> str | None:
-        """Currency the price source quotes, if it states one."""
-        return self.price_data.currency if self.price_data else None
-
-    @property
     def summary(self) -> str:
         """One sentence describing the current state.
 
@@ -156,23 +184,36 @@ class BitCruiseData:
         return summarize(
             status=self.status,
             now=self.evaluated_at,
-            plan=self.effective_plan,
+            # A pending proposal is what the sentence is about: the question is
+            # about the new window, not the one already approved.
+            plan=self.record.proposal or self.effective_plan,
             requirement=self.requirement,
             problems=self.problems,
             currency=self.currency,
             smart_charging=self.smart_charging,
-            is_replacement=self.record.is_replacement,
+            replaces=self.record.approved if self.record.is_replacement else None,
             proposal_reason=self.record.proposal_reason,
             ready_by=self.ready_by,
             current_soc_pct=self.current_soc_pct,
             target_soc_pct=self.target_soc_pct,
             recalculated=self.recalculated,
+            blocker=self.decision.blocker,
         )
 
     @property
     def price_interval_count(self) -> int:
         """How many intervals were parsed out of the price entity."""
         return len(self.price_data.intervals) if self.price_data else 0
+
+    @property
+    def ready_to_charge(self) -> bool | None:
+        """Whether charging could begin if a window opened right now."""
+        return ready_to_charge(
+            charger=self.charger_status,
+            capabilities=self.capabilities,
+            charger_online=self.charger_online,
+            plug=self.plug_status,
+        )
 
     @property
     def cheapest_price_in_horizon(self) -> Decimal | None:
@@ -253,6 +294,7 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         self._approval_policy = ApprovalPolicy.ASK_ON_CHANGE
         self._previous_inputs: PlanInputs | None = None
         self._manual_request = False
+        self._currency: str | None = None
 
     @property
     def options(self) -> dict:
@@ -367,6 +409,11 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             CONF_PLUG_ENTITY,
             CONF_AVAILABILITY_ENTITY,
             CONF_PRICE_ENTITY,
+            # The charger drives the execution decision, so its state changes
+            # have to wake the coordinator the same way the car's do.
+            CONF_CHARGER_STATUS_ENTITY,
+            CONF_CHARGER_ONLINE_ENTITY,
+            CONF_AUTHORIZATION_REQUIRED_ENTITY,
         )
         options = self.options
         return [value for key in keys if (value := options.get(key))]
@@ -501,6 +548,33 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         state = self.hass.states.get(entity_id)
         return state.state if state else None
 
+    def _read_bool(self, key: str) -> bool | None:
+        """Read an optional binary entity as a tri-state.
+
+        None means nothing reports it, which is not the same as False. A charger
+        with no authorization sensor is not a charger that needs no
+        authorization.
+        """
+        raw = self._read_state(key)
+        if raw is None:
+            return None
+        text = raw.strip().lower()
+        if text in ("on", "true"):
+            return True
+        if text in ("off", "false"):
+            return False
+        return None
+
+    def _capabilities(self) -> ChargerCapabilities:
+        """Which charger controls this installation actually has."""
+        options = self.options
+        return ChargerCapabilities(
+            can_authorize=bool(options.get(CONF_AUTHORIZE_ENTITY)),
+            can_start=bool(options.get(CONF_START_ENTITY)),
+            can_stop=bool(options.get(CONF_STOP_ENTITY)),
+            has_status=bool(options.get(CONF_CHARGER_STATUS_ENTITY)),
+        )
+
     def _evaluate(self) -> BitCruiseData:
         """Read every source and compute the requirement, or explain why not."""
         options = self.options
@@ -522,6 +596,8 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         not_before = next_occurrence(now, not_before_time) if not_before_time else None
 
         price_data = self._read_prices(problems)
+        if price_data is not None and price_data.currency:
+            self._currency = price_data.currency
 
         requirement: ChargeRequirement | None = None
         plan: ChargePlan | None = None
@@ -587,6 +663,23 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             ),
         )
 
+        charger_status = normalize_charger_status(
+            self._read_state(CONF_CHARGER_STATUS_ENTITY)
+        )
+        charger_online = self._read_bool(CONF_CHARGER_ONLINE_ENTITY)
+        authorization_required = self._read_bool(CONF_AUTHORIZATION_REQUIRED_ENTITY)
+        capabilities = self._capabilities()
+        decision = next_action(
+            now=now,
+            approved=record.approved,
+            charger=charger_status,
+            capabilities=capabilities,
+            smart_charging=self._smart_charging,
+            authorization_required=authorization_required,
+            charger_online=charger_online,
+            plug=plug,
+        )
+
         return BitCruiseData(
             requirement=requirement,
             plan=plan,
@@ -600,10 +693,16 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             evaluated_at=now,
             not_before=not_before,
             price_data=price_data,
+            currency=self._currency,
             record=record,
             smart_charging=self._smart_charging,
             recalculated=recalculated,
             approval_policy=self._approval_policy,
+            charger_status=charger_status,
+            charger_online=charger_online,
+            authorization_required=authorization_required,
+            capabilities=capabilities,
+            decision=decision,
         )
 
     def _reconcile(

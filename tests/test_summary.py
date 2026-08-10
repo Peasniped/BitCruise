@@ -68,18 +68,38 @@ class TestApprovedAndPending:
         )
         assert text.startswith("Prices changed: approve charging 03:00-05:00 tomorrow")
 
-    def test_a_replacement_says_it_is_a_move(self):
-        """Approving a move and approving a first plan are different questions."""
+    def test_a_replacement_names_both_ends_of_the_move(self):
+        """Move it to 03:00 is unanswerable without saying from where."""
+        moving_to = plan_tomorrow_morning()
+        approved = plan_charging(
+            planning_input(
+                now=at(20),
+                ready_by=at(7, day=11),
+                price_intervals=hourly(at(20), prices_with_cheap_pair(2)),
+            )
+        )
+        text = summarize(
+            status=PlanStatus.AWAITING_APPROVAL,
+            now=at(20),
+            plan=moving_to,
+            currency="DKK",
+            proposal_reason=PlanSource.PRICE_UPDATE,
+            replaces=approved,
+        )
+
+        assert "approve moving charging from 22:00-00:00 today" in text
+        assert "to 03:00-05:00 tomorrow" in text
+
+    def test_a_first_plan_is_not_described_as_a_move(self):
         plan = plan_tomorrow_morning()
         text = summarize(
             status=PlanStatus.AWAITING_APPROVAL,
             now=at(20),
             plan=plan,
-            currency="DKK",
-            proposal_reason=PlanSource.PRICE_UPDATE,
-            is_replacement=True,
+            proposal_reason=PlanSource.INITIAL,
         )
-        assert "approve moving charging to" in text
+        assert "approve charging 03:00-05:00 tomorrow" in text
+        assert "moving" not in text
 
     def test_a_window_later_in_the_week_is_dated(self):
         prices = ["2.0"] * 60

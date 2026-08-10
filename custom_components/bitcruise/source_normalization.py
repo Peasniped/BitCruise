@@ -33,6 +33,31 @@ _STALE_AVAILABILITY_STATES = frozenset(
     {"no_internet", "power_saving_mode", "ota_installation_in_progress"}
 )
 
+# Charger states. The Zaptec integration exposes an enum sensor reading
+# disconnected / connected_requesting / connected_charging / connected_finished;
+# other chargers use a binary_sensor or their own vocabulary. Only the normalized
+# meaning is allowed past this module.
+_CHARGER_CHARGING_STATES = frozenset(
+    {"connected_charging", "charging", "on", "true", "active"}
+)
+_CHARGER_FINISHED_STATES = frozenset(
+    {"connected_finished", "finished", "complete", "completed", "full"}
+)
+_CHARGER_WAITING_STATES = frozenset(
+    {
+        "connected_requesting",
+        "connected",
+        "awaiting_start",
+        "awaiting_authorization",
+        "paused",
+        "suspended",
+        "ready",
+        "off",
+        "false",
+    }
+)
+_CHARGER_DISCONNECTED_STATES = frozenset({"disconnected", "unplugged", "free", "idle"})
+
 
 class SourceUnavailable(Exception):
     """A selected source entity has no usable value right now.
@@ -59,6 +84,34 @@ class PlugStatus(StrEnum):
     DISCONNECTED = "disconnected"
     FAULT = "fault"
     UNKNOWN = "unknown"
+
+
+class ChargerStatus(StrEnum):
+    """Normalized charger state.
+
+    Distinct from ``PlugStatus``, which is what the *car* says about its cable.
+    The two disagree in useful ways: a car reporting connected while the charger
+    reports disconnected is a real fault, not a rounding error.
+
+    ``CONNECTED`` means plugged in but not delivering energy, whatever the
+    charger's own word for that is — waiting for authorization, paused, or
+    simply not started.
+    """
+
+    DISCONNECTED = "disconnected"
+    CONNECTED = "connected"
+    CHARGING = "charging"
+    FINISHED = "finished"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_plugged_in(self) -> bool:
+        """Whether a car is present, whether or not energy is flowing."""
+        return self in (
+            ChargerStatus.CONNECTED,
+            ChargerStatus.CHARGING,
+            ChargerStatus.FINISHED,
+        )
 
 
 class DataFreshness(StrEnum):
@@ -146,6 +199,29 @@ def normalize_plug_status(raw: str | None) -> PlugStatus:
     if text in _FAULT_STATES:
         return PlugStatus.FAULT
     return PlugStatus.UNKNOWN
+
+
+def normalize_charger_status(raw: str | None) -> ChargerStatus:
+    """Map a charger state entity onto ChargerStatus.
+
+    ``unavailable`` is UNKNOWN rather than DISCONNECTED. Charger integrations
+    routinely mark control entities unavailable while nothing is plugged in, and
+    reading that as "no car" would be a guess dressed as a fact.
+    """
+    if raw is None:
+        return ChargerStatus.UNKNOWN
+    text = str(raw).strip().lower()
+    if text in _NON_VALUES:
+        return ChargerStatus.UNKNOWN
+    if text in _CHARGER_CHARGING_STATES:
+        return ChargerStatus.CHARGING
+    if text in _CHARGER_FINISHED_STATES:
+        return ChargerStatus.FINISHED
+    if text in _CHARGER_WAITING_STATES:
+        return ChargerStatus.CONNECTED
+    if text in _CHARGER_DISCONNECTED_STATES:
+        return ChargerStatus.DISCONNECTED
+    return ChargerStatus.UNKNOWN
 
 
 def normalize_freshness(raw: str | None) -> DataFreshness:

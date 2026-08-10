@@ -304,4 +304,12 @@ class BitCruiseSensor(BitCruiseEntity, SensorEntity):
             "cheapest_price_in_horizon": _attribute_price(
                 data.cheapest_price_in_horizon
             ),
+            # Execution, reported but not acted on (Phase 6a). Watch these
+            # against the charger for a few nights before letting it act.
+            "charger_status": data.charger_status.value,
+            "charger_online": data.charger_online,
+            "authorization_required": data.authorization_required,
+            "next_charger_action": data.decision.action.value,
+            "execution_blocked_by": data.decision.blocker.value,
+            "execution_healthy": data.decision.is_healthy,
         }

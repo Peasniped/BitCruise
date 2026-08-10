@@ -60,22 +60,41 @@ class PlanRecord:
 
 
 def windows_equivalent(
-    left: ChargePlan | None, right: ChargePlan | None, tolerance: timedelta
+    left: ChargePlan | None,
+    right: ChargePlan | None,
+    tolerance: timedelta,
+    *,
+    started: bool = False,
 ) -> bool:
     """Whether two plans book close enough to the same window to not ask again.
 
     The comparison is strict at the boundary: with the default tolerance of one
     price interval, a window that moves by a whole interval is a material
     change. Anything smaller is jitter within a slot and is not worth a prompt.
+
+    ``started`` drops the start time from the comparison, and is set once the
+    clock is inside the approved window. A replan can never propose starting in
+    the past, so its start creeps forward with the clock and would eventually
+    differ by any tolerance you pick — asking the user, every hour, to approve
+    the fact that time has passed. Once a window is running, only its *end*
+    moving is a real change.
     """
     if left is None or right is None:
         return left is right
     if not left.has_window or not right.has_window:
         return left.has_window == right.has_window
-    return (
-        abs(to_utc(left.start) - to_utc(right.start)) < tolerance
-        and abs(to_utc(left.end) - to_utc(right.end)) < tolerance
-    )
+    if abs(to_utc(left.end) - to_utc(right.end)) >= tolerance:
+        return False
+    if started:
+        return True
+    return abs(to_utc(left.start) - to_utc(right.start)) < tolerance
+
+
+def _has_started(plan: ChargePlan | None, now: datetime) -> bool:
+    """Whether the clock has reached a plan's window."""
+    if plan is None or plan.start is None:
+        return False
+    return to_utc(now) >= to_utc(plan.start)
 
 
 def _expire(record: PlanRecord, now: datetime) -> PlanRecord:
@@ -151,7 +170,12 @@ def reconcile(
             )
         return replace(record, proposal=candidate, proposal_reason=reason)
 
-    if windows_equivalent(record.approved, candidate, material_change):
+    if windows_equivalent(
+        record.approved,
+        candidate,
+        material_change,
+        started=_has_started(record.approved, now),
+    ):
         # The replan agrees with what is already approved. Drop any staged
         # replacement: whatever moved the window has moved back.
         return replace(record, proposal=None, proposal_reason=None)

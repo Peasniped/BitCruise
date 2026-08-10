@@ -27,8 +27,35 @@ async def async_setup_entry(
             BitCruiseVehicleConnected(coordinator),
             BitCruiseCanMeetTarget(coordinator),
             BitCruisePlanRequiresApproval(coordinator),
+            BitCruiseReadyToCharge(coordinator),
         ]
     )
+
+
+class BitCruiseReadyToCharge(BitCruiseEntity, BinarySensorEntity):
+    """Whether charging could begin if a window opened right now.
+
+    Independent of the plan and the clock on purpose: a car left unplugged at
+    bedtime shows here hours before it misses the window it was booked for.
+    """
+
+    def __init__(self, coordinator: BitCruiseCoordinator) -> None:
+        """Set up the entity."""
+        super().__init__(coordinator, "ready_to_charge")
+
+    @property
+    def is_on(self) -> bool | None:
+        """True when the hardware is ready, None when nothing can say."""
+        return self.coordinator.data.ready_to_charge
+
+    @property
+    def available(self) -> bool:
+        """Unavailable until a charger start control is configured.
+
+        Reporting "not ready" with no charger configured would imply a fault
+        where there is simply no feature.
+        """
+        return super().available and self.coordinator.data.capabilities.can_start
 
 
 class BitCruisePlanRequiresApproval(BitCruiseEntity, BinarySensorEntity):

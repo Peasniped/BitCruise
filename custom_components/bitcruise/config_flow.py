@@ -24,10 +24,15 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_AUTHORIZATION_REQUIRED_ENTITY,
+    CONF_AUTHORIZE_ENTITY,
     CONF_AVAILABILITY_ENTITY,
     CONF_CAPACITY_ENTITY,
     CONF_CAPACITY_FIXED_KWH,
+    CONF_CHARGER_ONLINE_ENTITY,
+    CONF_CHARGER_STATUS_ENTITY,
     CONF_CHARGING_EFFICIENCY,
+    CONF_CHARGING_POWER_ENTITY,
     CONF_CHARGING_POWER_KW,
     CONF_MATERIAL_CHANGE_MINUTES,
     CONF_NOT_BEFORE,
@@ -36,6 +41,8 @@ from .const import (
     CONF_READY_BY,
     CONF_RESERVE_FLOOR_PCT,
     CONF_SOC_ENTITY,
+    CONF_START_ENTITY,
+    CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     CONF_TARGET_FIXED_PCT,
     DEFAULT_CHARGING_EFFICIENCY,
@@ -80,6 +87,37 @@ SOURCES_SCHEMA = vol.Schema(
         ),
         vol.Optional(CONF_PRICE_ENTITY): EntitySelector(
             EntitySelectorConfig(domain="sensor", device_class="monetary")
+        ),
+    }
+)
+
+
+# Charger execution capabilities, all optional. Entity selection rather than a
+# service-call schema: the reference charger exposes buttons and a switch, and
+# both are pressable generically without BitCruise knowing anything about
+# Zaptec. A capability nobody selected is one this installation does not have.
+CHARGER_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_CHARGER_STATUS_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain=["sensor", "binary_sensor"])
+        ),
+        vol.Optional(CONF_AUTHORIZATION_REQUIRED_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain="binary_sensor")
+        ),
+        vol.Optional(CONF_AUTHORIZE_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain="button")
+        ),
+        vol.Optional(CONF_START_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain=["button", "switch"])
+        ),
+        vol.Optional(CONF_STOP_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain=["button", "switch"])
+        ),
+        vol.Optional(CONF_CHARGER_ONLINE_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain="binary_sensor")
+        ),
+        vol.Optional(CONF_CHARGING_POWER_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain="sensor", device_class="power")
         ),
     }
 )
@@ -230,6 +268,7 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Start with no collected sources."""
         self._sources: dict[str, Any] = {}
+        self._settings: dict[str, Any] = {}
 
     @property
     def _reconfigure_entry(self) -> ConfigEntry | None:
@@ -305,13 +344,37 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors=errors,
             )
 
+        self._settings = user_input
+        return await self.async_step_charger()
+
+    async def async_step_charger(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect the optional charger controls.
+
+        Last, and entirely skippable. The integration is useful without any of
+        it — it plans, and someone starts the charger by hand — so nothing here
+        may block setup.
+        """
+        entry = self._reconfigure_entry
+        suggestions = dict(entry.data) if entry else {}
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="charger",
+                data_schema=self.add_suggested_values_to_schema(
+                    CHARGER_SCHEMA, suggestions
+                ),
+            )
+
+        data = {**self._sources, **user_input}
         if entry is not None:
             return self.async_update_reload_and_abort(
-                entry, data=self._sources, options=user_input
+                entry, data=data, options=self._settings
             )
 
         return self.async_create_entry(
-            title="BitCruise", data=self._sources, options=user_input
+            title="BitCruise", data=data, options=self._settings
         )
 
     @staticmethod
