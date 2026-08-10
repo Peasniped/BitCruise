@@ -35,8 +35,8 @@ between installations — nothing here may be hard-coded. It is evidence about t
 
 | Entity | Example | Unit | Role |
 | --- | --- | --- | --- |
-| `sensor.volvo_xc40_trip_manual_average_energy_consumption` | `17.9` | `kWh/100km` | Trip energy model input |
-| `sensor.volvo_xc40_distance_to_empty_battery` | `240` | `km` | Range sanity check |
+| `sensor.volvo_xc40_distance_to_empty_battery` | `260` | `km` | **Preferred** trip energy input — live, temperature-aware |
+| `sensor.volvo_xc40_trip_manual_average_energy_consumption` | `17.9` | `kWh/100km` | Trip energy fallback: a past average |
 | `sensor.volvo_xc40_odometer` | ~44 000 | `km` | Planned vs actual distance |
 | `sensor.volvo_xc40_estimated_charging_time` | `0` | `min` | Cross-check on predicted duration |
 | `sensor.volvo_xc40_charging_power` | `0` | `W` | Observed charge rate |
@@ -148,8 +148,13 @@ Consequences:
    plan to it. The future "raise the target to 100% for a long trip" behaviour cannot
    set it, and must notify the user to change it manually — which is exactly the
    optional-actuator model in DESIGN.md section 17.
-2. **Real consumption is already measured** at `17.9 kWh/100km`, so the trip energy
-   model can read it rather than asking the user to guess.
+2. **The car already predicts its own range**, and recalculates it as the temperature
+   and recent driving change. `distance_to_empty_battery` against the current state of
+   charge answers "what does 100 km cost me" without needing battery capacity or any
+   consumption figure at all, and without going stale as the battery ages. The
+   measured `17.9 kWh/100km` is the fallback, not the primary input: it is a past
+   average, and the range estimate is the manufacturer's prediction of what is next.
+   See `DESIGN.md` §17, "Distance to empty is the better input".
 3. **`car_connection` is a staleness signal.** `no_internet` and `power_saving_mode`
    mean the SoC reading may be old. Under DESIGN.md section 3.4, planning on a stale
    SoC is precisely the class of mistake that must be refused rather than guessed at.

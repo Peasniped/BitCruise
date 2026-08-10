@@ -1254,10 +1254,8 @@ Details that matter:
 
 - **Label it "one way" unmistakably.** A user who enters the round trip gets a target
   twice too high and will never notice, because nothing about the result looks wrong.
-- **Consumption is read from the vehicle** where it exposes it — the reference
-  installation reports `17.9 kWh/100km` — and is configurable otherwise. A measured
-  average beats a guess, but it is a *past* average: winter consumption is materially
-  higher, so a configurable margin belongs here.
+- **Prefer the vehicle's live range estimate over any consumption figure.** See
+  "Distance to empty is the better input" below; the formula above is the fallback.
 - **The reserve floor is added, not compared against.** Arriving home at exactly the
   floor means the commute consumed everything spare. The floor is what remains for
   anything unplanned.
@@ -1274,9 +1272,50 @@ is the point.
 The same `trip_energy.py` module serves this and calendar-driven trips; the commute is
 just a trip that repeats and needs no booking.
 
+### Distance to empty is the better input
+
+The vehicle already publishes a live range estimate — `sensor.volvo_xc40_distance_to_
+empty_battery` on the reference installation — and it is recalculated continuously
+from the current state of charge, the temperature, and how the car has recently been
+driven. A `kWh/100km` figure is a *past average*; the range estimate is the
+manufacturer's own prediction of the next kilometres, already carrying the winter
+penalty that the configurable margin was invented to approximate.
+
+Used against the current state of charge it also removes two inputs entirely:
+
+```text
+required_soc_pct = trip_km / distance_to_empty_km * current_soc_pct + reserve_floor_pct
+```
+
+Neither `usable_capacity_kwh` nor a consumption figure appears. "47% gives me 260 km"
+is enough to answer "what does 100 km cost me", and it stays right when the battery
+degrades, because the car's own estimate degrades with it.
+
+Constraints on using it:
+
+- **Both readings must come from the same evaluation.** A state of charge from one
+  moment over a range from another is a ratio between two different cars.
+- **Undefined at the bottom.** A state of charge or range of zero makes the ratio
+  meaningless, and it is noisy at very low charge. Fall back to the consumption
+  formula rather than returning a confident answer.
+- **It reflects recent driving, not the trip ahead.** A range learned on town driving
+  understates a motorway run, so the configurable margin stays — it is now correcting
+  for route type rather than for the season.
+- **It is exactly as stale as the state of charge.** Both come from the vehicle, so
+  the `car_connection` staleness gate in section 3.4 already covers it.
+- **It is optional.** A vehicle integration that exposes no range entity falls back to
+  consumption, and a consumption figure the user typed in is the last resort.
+
+This applies to the commute requirement and to calendar trips alike; both live in
+`trip_energy.py`.
+
+Note it has nothing to do with `charging_efficiency`, which is grid-to-battery loss at
+the wall. Driving efficiency and charging efficiency are unrelated numbers that happen
+to share a word.
+
 ### Trip energy model
 
-Start simple and configurable:
+Start simple and configurable, as the fallback path:
 
 ```text
 trip_energy_kwh = distance_km * consumption_kwh_per_100km / 100
