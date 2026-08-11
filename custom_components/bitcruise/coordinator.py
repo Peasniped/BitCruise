@@ -59,6 +59,7 @@ from .const import (
     DEFAULT_READY_BY,
     DEFAULT_RESERVE_FLOOR_PCT,
     DOMAIN,
+    LATE_START_TOLERANCE_HOURS,
 )
 from .execution import (
     AttemptVerdict,
@@ -78,6 +79,7 @@ from .models import (
     InvalidPlanningInput,
     PlanningInput,
     PlanStatus,
+    elapsed_hours,
     to_utc,
 )
 from .plan_state import (
@@ -91,7 +93,7 @@ from .plan_state import (
     reconcile,
     reject,
 )
-from .planner import compute_requirement, plan_charging
+from .planner import achievable_soc_pct, compute_requirement, plan_charging
 from .price_sources import PriceData, parse_price_attributes
 from .source_normalization import (
     ChargerStatus,
@@ -148,6 +150,8 @@ class BitCruiseData:
     execution_enabled: bool = False
     marker: ExecutionMarker | None = None
     verdict: AttemptVerdict = AttemptVerdict.WAIT
+    late_start_soc_pct: float | None = None
+    """Reachable state of charge, when charging began after the window opened."""
     decision: ExecutionDecision = field(
         default_factory=lambda: ExecutionDecision(
             action=ExecutionAction.NONE, blocker=ExecutionBlocker.NO_APPROVED_PLAN
@@ -158,6 +162,26 @@ class BitCruiseData:
     def execution_stalled(self) -> bool:
         """Whether a charger has ignored the same action several times."""
         return self.verdict is AttemptVerdict.GIVE_UP
+
+    @property
+    def estimated_soc_at_end(self) -> float | None:
+        """Where the car actually ends up, not where the plan hoped it would.
+
+        These diverge as soon as charging starts late: the plan was costed for
+        the whole window, and only part of it is left.
+        """
+        if self.late_start_soc_pct is not None:
+            return self.late_start_soc_pct
+        plan = self.effective_plan
+        return plan.estimated_soc_at_end if plan else None
+
+    @property
+    def can_meet_target(self) -> bool | None:
+        """Whether the target is still reachable, given any late start."""
+        if self.late_start_soc_pct is not None and self.target_soc_pct is not None:
+            return self.late_start_soc_pct >= self.target_soc_pct
+        plan = self.effective_plan
+        return plan.can_meet_target if plan else None
 
     @property
     def is_usable(self) -> bool:
@@ -323,6 +347,8 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         """Installed version, read from the manifest during setup."""
         self._resume_plan_id: str | None = None
         """Plan whose manual stop the user has asked to override."""
+        self._late_start: tuple[str, float] | None = None
+        """Plan id and the state of charge still reachable, when charging began late."""
 
     @property
     def options(self) -> dict:
@@ -705,6 +731,59 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             return False
         return None
 
+    def _note_late_start(
+        self,
+        charger: ChargerStatus,
+        *,
+        approved: ChargePlan | None,
+        now: datetime,
+        soc: float | None,
+        capacity: float | None,
+        options: dict,
+    ) -> None:
+        """Record what is still reachable, the moment charging begins late.
+
+        A window booked for four hours that only gets two delivers roughly half
+        the energy, but the plan was costed for four — so every figure derived
+        from it promises more than the car will have. Taken once, when charging
+        actually starts, rather than continuously: a live estimate would drift
+        with every state-of-charge update and never settle on an answer.
+        """
+        if approved is None or not approved.has_window:
+            self._late_start = None
+            return
+        if self._late_start is not None and self._late_start[0] == approved.id:
+            return
+        if charger is not ChargerStatus.CHARGING or soc is None or capacity is None:
+            return
+
+        late_by = elapsed_hours(approved.start, now)
+        if late_by < LATE_START_TOLERANCE_HOURS:
+            return
+
+        self._late_start = (
+            approved.id,
+            achievable_soc_pct(
+                current_soc_pct=soc,
+                usable_capacity_kwh=capacity,
+                charging_power_kw=float(
+                    options.get(CONF_CHARGING_POWER_KW, DEFAULT_CHARGING_POWER_KW)
+                ),
+                charging_efficiency=float(
+                    options.get(CONF_CHARGING_EFFICIENCY, DEFAULT_CHARGING_EFFICIENCY)
+                )
+                / 100.0,
+                hours_available=elapsed_hours(now, approved.end),
+            ),
+        )
+        _LOGGER.info(
+            "Charging started %.1f h into the window; reachable state of charge is "
+            "now %.0f%% rather than the planned %.0f%%",
+            late_by,
+            self._late_start[1],
+            approved.estimated_soc_at_end,
+        )
+
     def _capabilities(self) -> ChargerCapabilities:
         """Which charger controls this installation actually has."""
         options = self.options
@@ -814,6 +893,14 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
         # night's charge, with a cable that never moved to clear it.
         if charger_status in (ChargerStatus.CHARGING, ChargerStatus.DISCONNECTED):
             self._resume_plan_id = None
+        self._note_late_start(
+            charger_status,
+            approved=record.approved,
+            now=now,
+            soc=soc,
+            capacity=capacity,
+            options=options,
+        )
         if charger_status is ChargerStatus.DISCONNECTED:
             # Unplugging ends the situation the attempts were made in. Keeping
             # them would mean a charger that had been given up on stayed given
@@ -871,6 +958,13 @@ class BitCruiseCoordinator(DataUpdateCoordinator[BitCruiseData]):
             execution_enabled=self._execution_enabled,
             marker=self._marker,
             verdict=verdict,
+            late_start_soc_pct=(
+                self._late_start[1]
+                if self._late_start
+                and record.approved
+                and self._late_start[0] == record.approved.id
+                else None
+            ),
         )
 
     def _reconcile(

@@ -2,7 +2,7 @@
 
 Outstanding work for **BitCruise**, and nothing else. [PLAN.md](PLAN.md) describes phases
 and acceptance criteria and carries the phase status table; [DESIGN.md](DESIGN.md)
-describes behavior.
+describes behavior. Work is ordered from top to bottom, where top tasks are the next to be done.
 
 **Finished work is removed from this file rather than ticked.** Git history records what
 was done; `PLAN.md` records which phases are complete. Anything learned along the way
@@ -13,52 +13,7 @@ completed checkbox nobody scrolls back to.
 Add newly discovered work here rather than leaving it implicit. Legend: `[ ]` open ·
 `[~]` in progress · `[-]` dropped (say why).
 
-**Phase numbers are identity, not sequence.** They are referenced from `DESIGN.md`, the
-ADRs and `CLAUDE.md`, so they do not get renumbered when priorities move. This file is
-written in delivery order; the numbers are just names.
 
----
-
-## Delivery order
-
-| # | Work | Phase |
-| --- | --- | --- |
-| 1 | Charger execution, reporting only | 6a |
-| 2 | Charger execution, acting | 6b |
-| 3 | Reserve floor becomes active | 9 |
-| 4 | Daily commute requirement | 8a |
-| 5 | Multi-day price awareness | 16 |
-| 6 | Optional deadline | 8c |
-| 7 | Notification plumbing and the critical cases | 5a |
-| 8 | Cheap power alert | 5b |
-| 9 | Remaining notification cases | 5c |
-| 10 | Calendar booking input | 10 |
-| 11 | Trip energy planning | 11 |
-| 12 | Planned distance calendar | 13 |
-| 13 | Repairs and diagnostics | 7 |
-| 14 | First HACS-quality release | 14 |
-| 15 | Multiple vehicles | 15 |
-
-Why this order:
-
-- **Nothing else matters until it charges the car.** Execution is the value unlock;
-  everything before it is an integration that tells you things you then act on by hand.
-- **The floor and the commute figure come next because multi-day planning needs both.**
-  Deferring charging to tomorrow means knowing what tomorrow morning actually demands.
-  With a 90% target and no floor there is nothing to defer.
-- **Multi-day beats just-in-time finishing**, which is demoted to the backlog. Sitting
-  at 80-90% for a few days does not meaningfully age a battery; sitting at 100%, hot,
-  does. So the reason to delay *within* a night is weak, while the reason to shift a
-  *day* is worth real money. The two also pull against each other: if tomorrow 04:00 is
-  half tonight's price, finishing just in time for tomorrow's 07:00 deadline optimises
-  the wrong axis.
-- **Phase 7 mostly already happened.** Phases 3 and 4 absorbed the persistence,
-  callback re-registration, expiry and unavailable-source handling. What remains that
-  is *about execution* belongs inside 6b, not after it: a version that can double-start
-  a charger should never exist, even briefly. Repairs and diagnostics are all that is
-  left of Phase 7 as a separate piece.
-
----
 
 ## Open decisions
 
@@ -91,46 +46,17 @@ that reads an entity. Highlights that change the plan:
 
 ---
 
-## 1. Phase 6a — Charger execution, reporting only
+## Verified on hardware, still worth watching
 
-Everything execution needs *except* firing an action. Run it on the real Zaptec for a
-few nights and check it would have done the right thing at 02:00. The one phase that
-can physically do something wrong to a car is the one worth dry-running.
+- [ ] Watch an unattended overnight charging session. The happy path is verified on
+  the real charger — authorize, start, charging — but only with someone watching in
+  the afternoon. An overnight run also exercises a path the daytime one did not: the
+  car asleep, `car_connection` reporting `power_saving_mode`, and the staleness gate
+  that comes with it.
 
-Landed: the charger config step, `execution.py` with the decision matrix,
-`ChargerStatus` normalization, `binary_sensor.ready_to_charge`, the execution
-attributes on `sensor.bitcruise_plan_status`, and the execution sentences in the
-summary. Remaining:
+---
 
-- [ ] Confirm over several nights that `next_charger_action` matches what a human watching the charger would do. One afternoon session is verified; an unattended overnight one is not.
-- [ ] Decide whether `charging_power_entity` earns a sensor of its own or stays config-only. It is collected but currently unused.
-- [ ] Consider reading a status entity's `options` attribute during config, and warning when it declares a state BitCruise does not recognise. The reference charger publishes its full enum there, so an unsupported charger could be detected at setup rather than at 02:00.
-
-## 2. Phase 6b — Charger execution, acting
-
-Fires the actions. 6a already decides *what* to do and skips actions that state
-information proves unnecessary — `execution.next_action` returns one action at a time
-and is re-asked every evaluation. What is left is carrying it out and coping when it
-does not work.
-
-The restart and idempotency items below came from Phase 7 and are deliberately built
-here rather than deferred: they are part of writing a start flow, not a hardening pass
-afterwards.
-
-Landed: `switch.bitcruise_operate_the_charger` (default **off**, so an upgrade
-never starts operating a charger that was not being operated before), domain
-dispatch to `button.press` / `switch.turn_on` / `switch.turn_off`, a persisted
-attempt marker giving idempotency across restarts, a cooldown so a burst of
-state changes presses once, giving up after three ignored attempts, and the
-stall reported on the status attributes and in the summary. Remaining:
-
-- [ ] Watch an unattended overnight session. The happy path is verified on the real charger — authorize, start, charging — but only with someone watching in the afternoon.
-- [ ] Late connection: recalculate achievable SoC and report it; do not extend past approved end. Starting late already works — the decision simply becomes START when the car appears mid-window — but the reachable state of charge is still reported as though the full window were used.
-- [ ] Disconnect mid-charge: currently just stops deciding. Consider whether it deserves a notification (Phase 5a).
-- [ ] Document the idempotency limitation where no status entity is configured — without one, "did it work?" cannot be answered, and the attempt cap is the only protection.
-- [ ] Decide whether `ATTEMPT_COOLDOWN` (60s) and `MAX_ATTEMPTS` (3) should be configurable, once there is evidence from a real charger.
-
-## 3. Phase 9 — Reserve floor becomes active
+## 1. Phase 9 — Reserve floor becomes active
 
 See `DESIGN.md` §6.4 and ADR-007. Also removes the "NOT ACTIVE YET" wart from the
 settings UI, which currently ships a setting that does nothing.
@@ -151,7 +77,7 @@ is drivable on an expensive day too.
 - [ ] Warn when the battery is low and power is expensive — it still charges, but the cost is worth surfacing rather than discovering on a bill.
 - [ ] Tests: floor breach while idle; breach mid-window; reconnect below floor; urgent plan overlapping an approved plan; `auto_approve_urgent` disabled; floor restored on an expensive day.
 
-## 4. Phase 8a — Daily commute requirement
+## 2. Phase 8a — Daily commute requirement
 
 The biggest battery-health win on the list, and the input multi-day planning needs.
 Charging to what the day actually costs instead of 90% every night matters far more
@@ -170,7 +96,7 @@ than shifting a window by a few hours. See `DESIGN.md` §6.5 and §17.
 - [ ] Put it in `trip_energy.py` — a commute is a trip that repeats and needs no booking.
 - [ ] Tests: one-way doubling; range-derived vs consumption-derived agree on a known case; fallback at zero SoC and zero range; no range entity configured; consumption from entity vs configured; floor added; target too low; margin applied.
 
-## 5. Phase 16 — Multi-day price awareness
+## 3. Phase 16 — Multi-day price awareness
 
 Depends on 9 and 8a: deferring means knowing what tomorrow morning demands.
 
@@ -192,7 +118,7 @@ non-contiguous allocation for no benefit.
 - [ ] Report the decision in the summary: what was charged tonight instead of what, and how much cheaper the deferred window is.
 - [ ] Tests: tomorrow much cheaper; cheaper only by noise; forecast-only tomorrow; deferral would breach the floor; deferral chain hits the cap; actual prices arriving mid-evening reverse the answer.
 
-## 6. Phase 8c — Optional deadline
+## 4. Phase 8c — Optional deadline
 
 Nearly free once 9 and 8a exist, and not viable before them: with no deadline, nothing
 stops the planner waiting forever for a cheaper hour except the floor.
@@ -202,7 +128,7 @@ stops the planner waiting forever for a cheaper hour except the floor.
 - [ ] Never invent a deadline to fill the gap.
 - [ ] Tests: no deadline still charges; no deadline and no floor does nothing rather than charging arbitrarily.
 
-## 7. Phase 5a — Notification plumbing and the critical cases
+## 5. Phase 5a — Notification plumbing and the critical cases
 
 The cases you want the day execution goes live, and the plumbing the cheap power alert
 needs. Not all of Phase 5.
@@ -215,7 +141,7 @@ needs. Not all of Phase 5.
 - [ ] Warning offset setting, default 15 minutes.
 - [ ] Verify the integration is fully operable with no notification target configured.
 
-## 8. Phase 5b — Cheap power alert
+## 6. Phase 5b — Cheap power alert
 
 Independent of the car, the charger and `switch.smart_charging`. Needs the Phase 3
 price curve, which exists, and the plumbing in 5a. Can jump the queue whenever a quick
@@ -233,7 +159,7 @@ win is wanted — but do not let it become a reason to build all of Phase 5 firs
 - [ ] Not gated on `switch.smart_charging`, plug status, or whether charging is needed.
 - [ ] Tests: window grouping; no re-notify on curve refresh; window extended; window passed; negative-price tier; threshold in øre vs DKK; no price data.
 
-## 9. Phase 5c — Remaining notification cases
+## 7. Phase 5c — Remaining notification cases
 
 - [ ] Initial proposal notification.
 - [ ] Actual-prices-published / move-plan notification.
@@ -242,7 +168,7 @@ win is wanted — but do not let it become a reason to build all of Phase 5 firs
 - [ ] Actionable buttons call the same integration actions as dashboard controls.
 - [ ] Notification actions must cope with `button.accept_plan` / `button.reject_plan` being unavailable once the question is answered. Home Assistant skips unavailable entities in a service call, so a stale tap is inert rather than an error — decide whether that silence is good enough or whether the action should report back.
 
-## 10. Phase 10 — Calendar booking input
+## 8. Phase 10 — Calendar booking input
 
 The calendar half: when the car is needed, and how far it is going.
 
@@ -254,7 +180,7 @@ The calendar half: when the car is needed, and how far it is going.
 - [ ] Determine next required departure time.
 - [ ] Derive required departure SoC and feed target/deadline into the planner.
 
-## 11. Phase 11 — Trip energy planning
+## 9. Phase 11 — Trip energy planning
 
 Cheaper after 8a: they share `trip_energy.py`, and the range-first model is already
 built by then.
@@ -272,7 +198,7 @@ built by then.
 - [ ] Automatic restore only where a writable actuator exists, and only behind a policy setting — silently lowering a deliberately raised target is its own surprise.
 - [ ] Tests: prompt issued / skipped when already high enough; user raises in time; user never raises; user raises partially; restore reminder fires once; state clears on manual restore; user sets a new lower normal.
 
-## 12. Phase 13 — Planned distance calendar
+## 10. Phase 13 — Planned distance calendar
 
 Depends on 10 and 11. See `DESIGN.md` §17. A derived read-model over `CarBooking` — it
 makes no charging decisions and must not become a second source of truth.
@@ -288,7 +214,7 @@ makes no charging decisions and must not become a second source of truth.
 - [ ] Evaluate a BitCruise-provided `calendar` entity only after the sensor proves useful.
 - [ ] Tests: DST days, multi-day bookings, missing distance, overlapping bookings, over-range days.
 
-## 13. Phase 7 — Repairs and diagnostics
+## 11. Phase 7 — Repairs and diagnostics
 
 All that is left of Phase 7 once 6b absorbs the execution recovery. Persistence,
 callback re-registration, expiry and unavailable-source handling already landed in
@@ -297,7 +223,7 @@ Phases 3 and 4 and have been deleted from this list.
 - [ ] Repairs issues for broken entity selections.
 - [ ] Diagnostics output with private data redacted.
 
-## 14. Phase 14 — First HACS-quality release
+## 12. Phase 14 — First HACS-quality release
 
 After the calendar and distance work: once other people install it, every configuration
 change needs a migration path, so the schema should stop moving first.
@@ -315,7 +241,7 @@ change needs a migration path, so the schema should stop moving first.
 - [ ] Upgrade from a previous version tested.
 - [ ] Document backup/recovery implications.
 
-## 15. Phase 15 — Multiple vehicles and shared-resource coordination
+## 13. Phase 15 — Multiple vehicles and shared-resource coordination
 
 Depends on 6b and should follow 9, since a floor breach on one car competes with a
 normal plan on another. See `DESIGN.md` §18 and ADR-008.
@@ -359,7 +285,7 @@ project owns that (ADR-005). Unscheduled because nothing else depends on it.
 
 ### Needs data only execution produces
 
-- [ ] Learned wall-to-battery efficiency — needs charger session energy against SoC gain, so it cannot start before 6b.
+- [ ] Learned wall-to-battery efficiency, replacing the configured 90%. **Compare the charger's session energy counter against the change in battery percentage**, not the two power readings: the car reports power with real latency and updates far less often than the charger, so comparing them instantaneously measures the reporting delay rather than the losses. Energy counters do not have that problem — they only need reading at the start and the end, so the latency cancels. The reference charger exposes `session_total_charge` in kWh. `charging_power_entity` is already collected in the config flow for this, and stays unused until then.
 - [ ] Historical actual charging power learning.
 - [ ] Charger session energy reconciliation.
 - [ ] Completion detection from SoC target rather than schedule end.
@@ -367,20 +293,35 @@ project owns that (ADR-005). Unscheduled because nothing else depends on it.
 
 ### Presentation
 
-- [ ] Custom Lovelace card shipped with the integration. A working hand-built one lives in [`docs/lovelace-card.yaml`](docs/lovelace-card.yaml) and serves as the specification: summary sentence, smart-charging toggle, approval policy, and accept / reject / recalculate. Shipping it means a JavaScript frontend module registered as a HACS frontend resource — a second language, a second release artifact, and a second thing to keep in step with entity names. Worth doing only once the entity surface has stopped moving, so after Phase 14 rather than before.
-- [ ] Decide what a shipped card does about language. The example card's labels are hard-coded Danish; a shipped one should read the integration's own translations, which is one more reason it should wait.
+### Custom Lovelace card shipped with the integration
+
+Moved up from "after Phase 14". The reason for deferring it was that a card
+hard-coding entity ids breaks every time an entity is added or the device is
+renamed — but a card that *discovers* its entities does not, so the churn
+argument mostly evaporates. Still worth doing after the reserve floor lands.
+
+[`docs/lovelace-card.yaml`](docs/lovelace-card.yaml) is a working hand-built version
+and serves as the specification: summary sentence, smart-charging toggle, approval
+policy, and accept / reject / recalculate. It needs the `button-card` custom card;
+the point of shipping one is to need nothing.
+
+**Confirmed against the installed Home Assistant** (`helpers/entity_registry.py`,
+`DISPLAY_DICT_OPTIONAL`): the compact registry payload the frontend caches carries
+`ei` entity_id, `pl` platform, `di` device_id and `tk` translation_key. So discovery
+works with data the frontend already holds — no WebSocket round trip, no config.
+
+- [ ] Discover entities rather than configuring them: filter `hass.entities` on `platform === "bitcruise"`, then identify each by `translation_key` (`summary`, `accept_plan`, `approval_policy`, …), which `BitCruiseEntity` already sets and which never moves. `single_config_entry: true` means there is exactly one device, so the card can find itself and need **no configuration at all**.
+- [ ] Keep translation keys stable, and treat renaming one as a breaking change for the card. They are now an interface, not just a lookup for display names.
+- [ ] Plain Web Component: `setConfig` / `set hass` / `getCardSize`. No build step, no framework, no third-party card.
+- [ ] Serve it from the integration — register a static path and add the frontend URL — so there is no HACS frontend resource for the user to add. **Check the current developer docs first**: both the static-path registration and the frontend URL helper changed in recent releases.
+- [ ] Cache-bust the resource URL with the manifest version. Without it, an upgrade leaves the old card in the browser cache and produces bug reports nobody can reproduce.
+- [ ] Read user-facing strings from the integration's own translations rather than hard-coding them. The example card's labels are Danish because its author is; a shipped card cannot be.
+- [ ] Start read-only — summary, status, the toggle — to prove the plumbing end to end before porting the dropdown and the buttons.
+- [ ] Decide whether a `getConfigElement` visual editor is worth it. A card with no configuration barely needs one.
 - [ ] Translate `sensor.bitcruise_summary`. Home Assistant translates enumerated entity states, not composed ones, so the sentence is English-only. `summary.py` keeps the wording in one place; the likely route is `async_get_translations` over a custom category, which needs checking against hassfest first.
 
 ### Calendar conveniences
 
 - [ ] Calendar UI helpers: a way to create a car booking without hand-typing the `distance_km: / return:` block into an event description (`DESIGN.md` §17). An action, or a blueprint, that writes a correctly-formed event.
+- - Maybe add charging blocks into the calendar, and then the user can make a similar calendar entry to manually schedule charging blocks?
 - [ ] Route provider adapter: derive `distance_km` from the booking's Location instead of the user entering it, via an optional geocoding/routing service (`DESIGN.md` §17).
-
-### Bigger, later
-
-- [ ] Solar forecast / surplus charging.
-- [ ] Multiple EVs sharing one connection limit.
-- [ ] Multiple chargers.
-- [ ] Configurable tariff/tax components.
-- [ ] DC fast-charge stop planning.
-- [ ] Household priority rules.

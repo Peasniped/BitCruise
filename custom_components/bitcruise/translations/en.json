@@ -64,11 +64,10 @@
           "not_before": "Optional. Prevents charging being scheduled earlier than this time.",
           "material_change_minutes": "How far an already approved window has to move before you are asked again. One price interval (60 minutes) means any real move asks; a larger value tolerates small shifts silently."
         }
-      }
-,
+      },
       "charger": {
-        "title": "Charger controls (optional)",
-        "description": "How BitCruise talks to your charger. Everything here is optional \u2014 leave it all empty and BitCruise will plan charging and tell you about it, but you start the charger yourself.\n\nBefore you start: set the charger to normal or default control, not to run its own schedule. A charger following its own schedule accepts a start command and then quietly ignores it, and nothing it reports tells you why.\n\nBitCruise presses nothing until you turn on the 'Operate the charger' switch.",
+        "title": "Charger controls",
+        "description": "How BitCruise talks to your charger. Leave every field empty and BitCruise will plan charging and tell you about it, but you start the charger yourself — that is a complete setup.\n\nBefore you start: set the charger to normal or default control, not to run its own schedule. A charger following its own schedule accepts a start command and then quietly ignores it, and nothing it reports tells you why.\n\nBitCruise presses nothing until you turn on the 'Operate the charger' switch.",
         "data": {
           "charger_status_entity": "Charger status",
           "authorization_required_entity": "Authorization required",
@@ -79,7 +78,7 @@
           "charging_power_entity": "Charging power"
         },
         "data_description": {
-          "charger_status_entity": "Reports whether a car is connected and whether it is charging. Strongly recommended: without it BitCruise has to guess from the car's own cable sensor, and cannot confirm that starting worked.",
+          "charger_status_entity": "Reports whether a car is connected and whether it is charging. Required if you select any of the controls below: without it BitCruise cannot tell whether a start actually worked.",
           "authorization_required_entity": "On when the charger is waiting to be authorized. Without it BitCruise authorizes anyway, which is harmless on a charger that does not need it.",
           "authorize_entity": "Pressed when the charger is waiting for authorization. Leave empty if your charger authorizes by itself.",
           "start_entity": "A button or switch that starts or resumes charging.",
@@ -87,12 +86,14 @@
           "charger_online_entity": "On while the charger is reachable. Used to avoid pressing controls that cannot respond.",
           "charging_power_entity": "Optional. Actual power being drawn, for reporting only."
         }
-      }    },
+      }
+    },
     "error": {
       "target_required": "Select a charge target entity, or set a fixed target.",
       "capacity_required": "Select a battery capacity entity, or enter the capacity.",
       "floor_above_target": "The reserve floor must be lower than the charge target. It is the level you never want to drop below, not a second target. Set it to 0 if you do not want to use it.",
-      "target_not_a_percentage": "That entity is not measured in percent. A 'charging limit' in amps controls how fast the car charges, not how full it gets. Pick the entity that reports the charge target as a percentage, or leave this empty and set a fixed target on the next page."
+      "target_not_a_percentage": "That entity is not measured in percent. A 'charging limit' in amps controls how fast the car charges, not how full it gets. Pick the entity that reports the charge target as a percentage, or leave this empty and set a fixed target on the next page.",
+      "status_required": "Select a charger status entity. Without one BitCruise cannot tell whether a start actually worked, so it would press the button, learn nothing, and report a charger that may or may not be charging. Leave every charger field empty if you would rather start the charger yourself."
     },
     "abort": {
       "single_instance_allowed": "Already configured. Only a single BitCruise instance is supported.",

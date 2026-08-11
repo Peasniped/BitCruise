@@ -193,7 +193,7 @@ SENSORS: tuple[BitCruiseSensorDescription, ...] = (
         translation_key="estimated_soc_at_ready",
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=0,
-        value_fn=lambda data: _plan_value(data, "estimated_soc_at_end"),
+        value_fn=lambda data: data.estimated_soc_at_end,
     ),
     BitCruiseSensorDescription(
         key="ready_by",

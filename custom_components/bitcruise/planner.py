@@ -246,6 +246,27 @@ def _estimated_soc(data: PlanningInput, planned_grid_kwh: float) -> float:
     return min(data.current_soc_pct + gain_pct, 100.0)
 
 
+def achievable_soc_pct(
+    *,
+    current_soc_pct: float,
+    usable_capacity_kwh: float,
+    charging_power_kw: float,
+    charging_efficiency: float,
+    hours_available: float,
+) -> float:
+    """State of charge reachable in the time actually left.
+
+    Used when charging starts later than planned. The booked window is not
+    extended to compensate — that would be moving an approved plan — so what
+    changes is the honest expectation of where the car ends up.
+    """
+    if hours_available <= 0:
+        return current_soc_pct
+    delivered_battery_kwh = hours_available * charging_power_kw * charging_efficiency
+    gain_pct = delivered_battery_kwh / usable_capacity_kwh * 100.0
+    return min(current_soc_pct + gain_pct, 100.0)
+
+
 def _no_charge_plan(data: PlanningInput, requirement: ChargeRequirement) -> ChargePlan:
     """Plan for a car that is already at or above its target."""
     return ChargePlan(

@@ -799,6 +799,10 @@ If the car is disconnected at start but plugged in during the approved window:
 - recalculate expected achievable SoC;
 - do not extend beyond approved end without policy/approval.
 
+The recalculation happens **once, when charging actually begins**, not continuously. A live estimate would drift with every state-of-charge update and never settle on an answer a person could act on. It replaces what `estimated_soc_at_ready` and `binary_sensor.target_unreachable` report, while the plan itself — and its window — is left alone: the plan records what was agreed, and the correction records what is now reachable. A start within `LATE_START_TOLERANCE_HOURS` is the charger and the car agreeing with each other and is not treated as late.
+
+A charger status entity is **required** whenever any charger control is configured. Without one, a start cannot be verified: BitCruise would press the button, learn nothing, press again, give up, and report a charger that may well be charging. Requiring it removes that class of problem rather than documenting it. Configuring no charger at all stays entirely valid — the integration then plans and reports, and a person starts the charger.
+
 ### Failure handling
 
 Handle and surface: authorization failure; start failure; charger unavailable; car disconnected during charge; charging stopped externally; Home Assistant restart mid-session.

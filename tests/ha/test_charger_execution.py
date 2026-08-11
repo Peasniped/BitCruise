@@ -38,6 +38,8 @@ CONTROL = "switch.bitcruise_operate_the_charger"
 AUTHORIZE_BUTTON = "button.charger_authorize"
 START_BUTTON = "button.charger_resume"
 CHARGING_SWITCH = "switch.charger_charging"
+SOC_AT_READY = "sensor.bitcruise_estimated_soc_at_ready"
+UNREACHABLE = "binary_sensor.bitcruise_charge_shortfall"
 
 # Nine hours past the 18:00 setup puts the clock inside the approved window.
 INSIDE = EVENING + timedelta(hours=9)
@@ -337,6 +339,50 @@ async def test_reconnecting_clears_a_manual_stop(hass: HomeAssistant) -> None:
         await _plug_in(hass)
 
         assert len(presses) > stopped
+
+
+async def test_a_late_start_corrects_the_reachable_charge(
+    hass: HomeAssistant,
+) -> None:
+    """A window booked for four hours that only gets one delivers a quarter.
+
+    The plan was costed for the whole window, so every figure derived from it
+    promises more than the car will have. The window is not extended to make up
+    for it — that would be moving an approved plan — so the honest thing to move
+    is the expectation.
+    """
+    await _arrive(hass)
+    with freeze_time(INSIDE):
+        await _enable(hass)
+        _watch(hass)
+        await _plug_in(hass)
+        planned = float(hass.states.get(SOC_AT_READY).state)
+
+    # Three hours into a 03:00-07:00 window, charging finally begins.
+    with freeze_time(INSIDE + timedelta(hours=3)):
+        hass.states.async_set(CHARGER_MODE, "connected_charging")
+        await hass.async_block_till_done()
+
+        reachable = float(hass.states.get(SOC_AT_READY).state)
+        assert reachable < planned, "one hour cannot deliver what four were costed for"
+        assert hass.states.get(UNREACHABLE).state == "on"
+
+
+async def test_starting_on_time_leaves_the_estimate_alone(
+    hass: HomeAssistant,
+) -> None:
+    """Only a genuinely late start is corrected; a prompt one is not."""
+    await _arrive(hass)
+    with freeze_time(INSIDE):
+        await _enable(hass)
+        _watch(hass)
+        await _plug_in(hass)
+        planned = hass.states.get(SOC_AT_READY).state
+
+        hass.states.async_set(CHARGER_MODE, "connected_charging")
+        await hass.async_block_till_done()
+
+        assert hass.states.get(SOC_AT_READY).state == planned
 
 
 async def test_the_switch_is_unavailable_without_a_charger(

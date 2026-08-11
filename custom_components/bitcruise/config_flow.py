@@ -196,6 +196,23 @@ def settings_schema(
     return vol.Schema(fields)
 
 
+def validate_charger(charger: dict[str, Any]) -> dict[str, str]:
+    """Return field errors for the charger controls.
+
+    A control without a status entity cannot be verified: BitCruise presses the
+    button and has no way to learn whether anything happened, so it presses
+    again, gives up, and reports a charger that may well be charging. Requiring
+    the status entity removes the whole class of problem rather than documenting
+    it. Configuring no charger at all remains entirely valid.
+    """
+    controls = (CONF_AUTHORIZE_ENTITY, CONF_START_ENTITY, CONF_STOP_ENTITY)
+    if any(charger.get(key) for key in controls) and not charger.get(
+        CONF_CHARGER_STATUS_ENTITY
+    ):
+        return {CONF_CHARGER_STATUS_ENTITY: "status_required"}
+    return {}
+
+
 def validate_settings(
     sources: dict[str, Any],
     settings: dict[str, Any],
@@ -365,6 +382,15 @@ class BitCruiseConfigFlow(ConfigFlow, domain=DOMAIN):
                 data_schema=self.add_suggested_values_to_schema(
                     CHARGER_SCHEMA, suggestions
                 ),
+            )
+
+        if errors := validate_charger(user_input):
+            return self.async_show_form(
+                step_id="charger",
+                data_schema=self.add_suggested_values_to_schema(
+                    CHARGER_SCHEMA, user_input
+                ),
+                errors=errors,
             )
 
         data = {**self._sources, **user_input}

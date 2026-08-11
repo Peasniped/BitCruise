@@ -81,6 +81,7 @@ prefer encoding decisions as tests and docstrings — those survive the document
 - `tests/conftest.py` must never import Home Assistant, so the pure tests keep working without the shims.
 - HA test instances do **not** use your timezone. Any test involving ready-by must call `await hass.config.async_set_time_zone(...)`, or a wall-clock time resolves to the wrong instant and the planner correctly picks a different window.
 - Entity IDs derive from the **display name**, not the translation key. Keep them consistent or `sensor.bitcruise_<key>` will not exist.
+- **Translation keys are an interface, not just a label lookup.** The registry payload the frontend caches carries `translation_key` (`DISPLAY_DICT_OPTIONAL` in `helpers/entity_registry.py`), which is how a shipped Lovelace card will find BitCruise's entities without being configured. Renaming one is a breaking change for anything downstream, unlike renaming a display name.
 
 ## Coding standards
 

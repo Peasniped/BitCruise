@@ -219,6 +219,42 @@ async def test_single_instance_only(hass: HomeAssistant) -> None:
     assert result["reason"] == "single_instance_allowed"
 
 
+async def test_a_charger_control_requires_a_status_entity(
+    hass: HomeAssistant,
+) -> None:
+    """Without status, a start cannot be verified — so it is not allowed.
+
+    BitCruise would press the button, learn nothing, press again, give up, and
+    report a charger that may well be charging perfectly.
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SOURCES)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SETTINGS)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_START_ENTITY: "button.charger_resume"}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_CHARGER_STATUS_ENTITY: "status_required"}
+
+
+async def test_a_status_entity_alone_is_allowed(hass: HomeAssistant) -> None:
+    """Reporting without acting is exactly what Phase 6a was for."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SOURCES)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], SETTINGS)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CHARGER_STATUS_ENTITY: "sensor.charger_mode"}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 async def test_the_device_reports_the_installed_version(
     hass: HomeAssistant,
 ) -> None:

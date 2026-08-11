@@ -21,21 +21,21 @@ is the delivery sequence; [TODO.md](TODO.md) is written in that order.
 | — | 2 | HA source binding and visible sensors | Code complete; awaiting hardware check |
 | — | 3 | Energi Data Service + Carnot price adapter | Complete |
 | — | 4 | Proposal/approval state machine | Complete |
-| 1 | 6a | Charger execution, reporting only | Complete |
-| 2 | 6b | Charger execution, acting | Complete; happy path verified on the real charger |
-| 3 | 9 | Reserve floor becomes active | Not started |
-| 4 | 8a | Daily commute requirement | Not started |
-| 5 | 16 | Multi-day price awareness | Not started |
-| 6 | 8c | Optional deadline | Not started |
-| 7 | 5a | Notification plumbing and critical cases | Not started |
-| 8 | 5b | Cheap power alert | Not started |
-| 9 | 5c | Remaining notification cases | Not started |
-| 10 | 10 | Calendar booking input | Not started |
-| 11 | 11 | Trip energy planning | Not started |
-| 12 | 13 | Planned distance calendar | Not started |
-| 13 | 7 | Repairs and diagnostics | Partly absorbed; see below |
-| 14 | 14 | First HACS-quality release | Not started |
-| 15 | 15 | Multiple vehicles and shared-resource coordination | Not started |
+| — | 6a | Charger execution, reporting only | Complete |
+| — | 6b | Charger execution, acting | Complete; overnight observation outstanding |
+| 1 | 9 | Reserve floor becomes active | Not started |
+| 2 | 8a | Daily commute requirement | Not started |
+| 3 | 16 | Multi-day price awareness | Not started |
+| 4 | 8c | Optional deadline | Not started |
+| 5 | 5a | Notification plumbing and critical cases | Not started |
+| 6 | 5b | Cheap power alert | Not started |
+| 7 | 5c | Remaining notification cases | Not started |
+| 8 | 10 | Calendar booking input | Not started |
+| 9 | 11 | Trip energy planning | Not started |
+| 10 | 13 | Planned distance calendar | Not started |
+| 11 | 7 | Repairs and diagnostics | Partly absorbed; see below |
+| 12 | 14 | First HACS-quality release | Not started |
+| 13 | 15 | Multiple vehicles and shared-resource coordination | Not started |
 | — | 8b | Just-in-time finishing | Demoted to backlog |
 | — | 12 | Booking conflict decisions | Unscheduled |
 

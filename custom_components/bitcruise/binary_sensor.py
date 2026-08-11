@@ -92,10 +92,10 @@ class BitCruiseCanMeetTarget(BitCruiseEntity, BinarySensorEntity):
         Reported as a problem rather than as "can meet target" so it is off in
         the healthy case and draws attention only when the car will fall short.
         """
-        plan = self.coordinator.data.effective_plan
-        if plan is None:
+        can_meet = self.coordinator.data.can_meet_target
+        if can_meet is None:
             return None
-        return not plan.can_meet_target
+        return not can_meet
 
 
 class BitCruiseChargeNeeded(BitCruiseEntity, BinarySensorEntity):

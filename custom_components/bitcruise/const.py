@@ -52,6 +52,11 @@ DEFAULT_READY_BY: Final = "07:00:00"
 # slot rather than to a different one, which is not worth asking about.
 DEFAULT_MATERIAL_CHANGE_MINUTES: Final = 60
 
+# How late charging may begin before the reachable state of charge is recomputed.
+# A few minutes is the charger and the car agreeing with each other; an hour is
+# a car that came home late, and every figure derived from the plan is then wrong.
+LATE_START_TOLERANCE_HOURS: Final = 0.25
+
 # Storage. The key is suffixed with the config entry id, so a future multi-entry
 # installation does not have two planners writing the same file.
 STORAGE_VERSION: Final = 1
